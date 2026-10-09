@@ -1,0 +1,4 @@
+litellm[proxy]==1.104.2
+# LiteLLM 1.104.2's auth error handler imports prisma even without a database;
+# without it a request with no API key returns 500 instead of 401.
+prisma==0.15.0

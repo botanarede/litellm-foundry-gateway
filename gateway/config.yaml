@@ -1,0 +1,47 @@
+model_list:
+  # Profile A: OpenAI models on Foundry use plain Azure Responses passthrough.
+  - model_name: gpt-6.1-sol
+    litellm_params: &foundry
+      model: azure/gpt-6.1-sol
+      # Use the bare resource URL, e.g. https://<resource>.openai.azure.com; do not add /openai/v1.
+      api_base: os.environ/AZURE_FOUNDRY_API_BASE
+      api_version: v1
+      api_key: os.environ/AZURE_FOUNDRY_API_KEY
+  - model_name: gpt-6-astra
+    litellm_params:
+      <<: *foundry
+      model: azure/gpt-6-astra
+
+  # Profile B: Partner models remove unsupported reasoning effort and enable Codex tool compatibility.
+  - model_name: DeepSeek-V4-Pro
+    litellm_params: &partner
+      <<: *foundry
+      model: azure/DeepSeek-V4-Pro
+      additional_drop_params: ["reasoning.effort"]
+    model_info: &compat
+      codex_tools_compat: true
+  - model_name: Kimi-K2.7-Code
+    litellm_params:
+      <<: *partner
+      model: azure/Kimi-K2.7-Code
+    model_info: *compat
+  - model_name: grok-4.6
+    litellm_params:
+      <<: *partner
+      model: azure/grok-4.6
+      num_retries: 3
+    model_info: *compat
+
+  - model_name: gemini/gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+      # Optional non-Foundry entry; remove it if GEMINI_API_KEY is not set.
+      drop_params: true
+
+litellm_settings:
+  callbacks: ["codex_tools_compat.codex_tools_compat"]
+  request_timeout: 600
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

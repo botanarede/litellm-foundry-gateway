@@ -1,0 +1,45 @@
+{
+  "type": "function",
+  "name": "automation_update",
+  "parameters": {
+    "anyOf": [
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "create"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "update"
+          },
+          "id": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "action",
+          "id",
+          "changes"
+        ],
+        "additionalProperties": false
+      }
+    ]
+  }
+}

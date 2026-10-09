@@ -1,0 +1,31 @@
+# Example Codex configuration for the local LiteLLM gateway.
+# Merge these keys into ~/.codex/config.toml; do not replace the whole file.
+# The key goes in ~/.codex/.env as LITELLM_API_KEY=<value of LITELLM_MASTER_KEY> (mode 0600).
+
+model_provider = "litellm"
+model = "DeepSeek-V4-Pro"            # keep your own default model
+model_catalog_json = "/home/<user>/.codex/azure-foundry-catalog.json"
+
+[model_providers.litellm]
+name = "LiteLLM gateway (local)"
+base_url = "http://127.0.0.1:4000/v1"
+env_key = "LITELLM_API_KEY"
+wire_api = "responses"
+supports_websockets = false
+request_max_retries = 4
+stream_max_retries = 5
+stream_idle_timeout_ms = 600000      # grok-4.6 needs 105-186 s per task
+
+# Manual fallback: the direct Azure AI Foundry provider (unchanged).
+[model_providers.azure-foundry]
+name = "Azure AI Foundry (<resource>)"
+base_url = "https://<resource>.openai.azure.com/openai/v1"
+env_key = "AZURE_FOUNDRY_API_KEY"
+wire_api = "responses"
+supports_websockets = false
+
+# CLI fallback: codex --profile azure-direct
+# Codex >= 0.160 rejects a [profiles.*] table in config.toml; the profile is a separate file,
+# ~/.codex/azure-direct.config.toml, containing:
+#   model_provider = "azure-foundry"
+#   model = "gpt-6.1-sol"

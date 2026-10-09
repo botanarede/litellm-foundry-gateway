@@ -1,0 +1,20 @@
+# systemd user unit template. Render @REPO_DIR@ with the absolute path of this checkout, e.g.:
+#   sed "s|@REPO_DIR@|$PWD|" deploy/litellm-foundry-gateway.service \
+#     > ~/.config/systemd/user/litellm-foundry-gateway.service
+# ProtectSystem/ProtectHome are intentionally absent: user units silently ignore them on hosts
+# that restrict unprivileged user namespaces (e.g. Ubuntu 24.04+ AppArmor defaults).
+[Unit]
+Description=LiteLLM gateway for Codex and Azure AI Foundry
+After=network-online.target
+
+[Service]
+EnvironmentFile=%h/.config/litellm-foundry-gateway/gateway.env
+ExecStart=%h/.local/share/litellm-foundry-gateway/venv/bin/litellm \
+  --config @REPO_DIR@/gateway/config.yaml --host 127.0.0.1 --port 4000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
