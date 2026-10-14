@@ -68,10 +68,12 @@ def test_r2_1_config_drops_reasoning_effort() -> None:
     """Compat models configure effort removal while OpenAI models remain plain."""
     config = yaml.safe_load((REPOSITORY_ROOT / "gateway" / "config.yaml").read_text(encoding="utf-8"))
     models = config["model_list"]
+    # The `auto` router entry carries the flag but routes to the partner entries below, which drop effort.
     compat_models = [
         model
         for model in models
         if (model.get("model_info") or {}).get("codex_tools_compat")
+        and model["litellm_params"]["model"].startswith("azure/")
     ]
     openai_models = [
         model

@@ -48,6 +48,28 @@ model_list:
       api_base: os.environ/AZURE_FOUNDRY_DECISIONS_BASE
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
 
+  # Optional complexity router; used only when a client selects `auto`. See README.
+  - model_name: auto
+    litellm_params:
+      model: auto_router/complexity_router
+      complexity_router_config:
+        classifier_type: jev
+        jev_classifier_config:
+          deployment_name: Decision-1
+          timeout_ms: 3000
+        tiers:
+          SIMPLE: DeepSeek-V4-Flash
+          MEDIUM: DeepSeek-V4-Pro
+          COMPLEX: gpt-6.1-sol
+          REASONING: gpt-6.1-sol
+        # A failed or timed-out classifier call routes to the cheapest model instead of guessing.
+        default_model: DeepSeek-V4-Flash
+        classifier_fallback: default_model
+        session_affinity: true
+    # The callback keys on the requested model name, so the flag must sit on `auto` itself.
+    model_info:
+      codex_tools_compat: true
+
 litellm_settings:
   callbacks: ["codex_tools_compat.codex_tools_compat"]
   request_timeout: 600
