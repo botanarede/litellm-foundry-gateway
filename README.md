@@ -4,12 +4,14 @@ A local LiteLLM gateway that lets Codex CLI and the Codex/ChatGPT desktop app us
 
 ## Overview and architecture
 
-The service is one authenticated LiteLLM 1.105.0 process on `127.0.0.1:4000`. Codex clients use one Responses API provider; LiteLLM sends each Foundry deployment through its native Azure Responses path. The only custom component is the `codex_tools_compat` callback configured in `gateway/config.yaml`.
+The service is one authenticated LiteLLM 1.105.0 process on `127.0.0.1:4000`. Codex clients use one Responses API provider; LiteLLM sends each Foundry deployment through its native Azure Responses path. The only custom component is the `codex_tools_compat` callback configured in `gateway/config.yaml`. It has two jobs: (a) Codex namespace-tool compatibility for models flagged in `model_info`, and (b) a router-level guard (`async_pre_call_check`) that refuses any `typesafe/` decision deployment whose resolved `api_base` is not an `https` Azure host (`*.openai.azure.com`, `*.services.ai.azure.com`) or that has no `api_key`.
 
 ```text
 Codex CLI / desktop app ── Responses API ──> LiteLLM :4000 (loopback, master key)
                                                 ├─ azure/<OpenAI deployment>
                                                 └─ azure/<partner deployment> + compatibility callback
+Decision clients ── /v1/systemone, /v1/decisions ──> same process
+                                                └─ typesafe/Decision-1 ── callback guard ──> Foundry resource only
 ```
 
 It addresses the failures reproduced against partner models:
@@ -17,7 +19,7 @@ It addresses the failures reproduced against partner models:
 - **F1:** DeepSeek and Kimi reject `reasoning.effort`; Profile B removes it before the upstream request.
 - **F2:** Foundry rejects function tools with a composed or non-object root schema; the callback drops those unsafe tools rather than corrupting their meaning.
 - **F3:** Foundry returns invalid content for Codex `namespace` tools; the callback flattens their child functions for the upstream request and restores the namespace in the response.
-- **F4:** partner models can return upstream `429` responses (for example `x-ratelimit-type: InferenceContainer`) even with quota available; Codex request retries cover them.
+- **F4:** partner models can return upstream `429` responses even with quota available; see "Retries and concurrency" under Limitations.
 
 The configured Foundry deployments are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7`. Adding another Foundry deployment changes configuration, not gateway code.
 
@@ -31,9 +33,9 @@ Verified with LiteLLM 1.105.0, Codex CLI 0.160 and the Codex/ChatGPT desktop app
 | `DeepSeek-V4-Pro` | B | 3/3 PASS | Functional |
 | `DeepSeek-V4-Flash` | B | 3/3 PASS | Pending manual test |
 | `Kimi-K2.7-Code` | B | 3/3 PASS | Functional |
-| `grok-4.7` | B | 3/3 PASS (slow, see limitations) | Pending manual test |
+| `grok-4.7` | B | 1/3 (Azure 429, see limitations) | Pending manual test |
 
-The latest CLI matrix (2026-10-13) passed 15/15 on a candidate instance before the service restart; every model then answered through `127.0.0.1:4000`. The unit suite (`pytest tests/unit`) passes.
+The latest full CLI matrix (2026-10-14) passed 13/15 on `127.0.0.1:4000`. The four non-grok models passed 3/3; `grok-4.7` passed shell and failed MCP (Azure 429 rate limit) and file edit (timeout after reconnects). The `Decision-1` smoke test (`tests/live/decisions.sh`) passed 4/4. The unit suite (`pytest tests/unit`) passes.
 
 ## Install and run the user service
 
@@ -73,7 +75,7 @@ The file uses these variable names; keep its values private:
 - `LITELLM_MASTER_KEY` — an `sk-`-prefixed gateway key.
 - `AZURE_FOUNDRY_DECISIONS_BASE` — only for Profile D decision models: the same resource URL plus `/providers/microsoft`. The callback refuses to call a decision model if this is empty or not an `https` Azure host.
 
-The gateway never needs `TYPESAFE_API_KEY`, `TYPESAFE_API_BASE` or `GEMINI_API_KEY`. Keep them out of this file (see Profile D for why).
+The gateway never needs `TYPESAFE_API_KEY`, `TYPESAFE_API_BASE` or `GEMINI_API_KEY`. Keep them out of this file (see Security notes).
 
 Render the user unit template with this checkout's absolute path, install it and start it:
 
@@ -134,7 +136,7 @@ Use this configuration-only procedure:
 1. Choose Profile A for an OpenAI deployment or Profile B for a partner model that supports tool calling.
 2. Add one entry to the existing `model_list` in `gateway/config.yaml`; set the slug sent by Codex equal to `model_name`, and set `model: azure/<that-deployment>`.
 3. For any model exposed in Codex, ensure the same slug is present in the file referenced by `model_catalog_json`. Codex can select only catalog-listed models.
-4. Start the changed configuration on a temporary port and run the full live matrix before exposing the model. Do not infer Responses API support from vendor documentation.
+4. Start the changed configuration on a temporary port and run the full live matrix before exposing the model (see Limitations, "Compatibility evidence").
 
 The following blocks are examples, not whole replacements. Copy only entries that are not already in `gateway/config.yaml` into its existing top-level `model_list` list; do not duplicate model names. Reuse the earlier `&foundry`, `&partner`, and `&compat` anchors where applicable. If copied entries instead reference an example-profile anchor, also copy that profile's first, anchor-defining entry as the anchor source (under a different `model_name` only if truly needed). Replace neither the callback nor global settings.
 
@@ -177,7 +179,7 @@ Profile A is native Azure Responses passthrough. Only `gpt-6.1-sol` is verified 
 
 ### Profile B — partner model with tool calling
 
-Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7` are verified live from the examples below. Add `num_retries` to an entry only if its upstream returns frequent `429` responses.
+Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7` are verified live from the examples below. For `num_retries`, see Limitations, "Retries and concurrency".
 
 ```yaml
   - model_name: DeepSeek-V4-Pro
@@ -238,14 +240,9 @@ Decision models such as `Microsoft-Decision-1` do not generate text; they return
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
 ```
 
-**Credentials stay on the Foundry resource.** The `typesafe/` provider falls back to `TYPESAFE_API_BASE`, then `https://api.typesafe.ai`, and to `TYPESAFE_API_KEY` whenever a config value is empty. A fixed unit setting is not enough, because systemd lets an `EnvironmentFile` line override `Environment=`. The guard works on the resolved deployment, so it holds whatever the environment contains:
+Decision calls never leave the Foundry resource: the callback guard enforces it (see Security notes). The resource name stays in your local `gateway.env`, never in the repository.
 
-- The callback's `async_pre_call_check` refuses every `typesafe/` deployment whose `api_base` is empty, not `https`, or not an Azure host (`*.openai.azure.com`, `*.services.ai.azure.com`), and every one without an `api_key`. The router calls it for every decision call, including the ones a classifier makes internally, so nothing leaves the host.
-- The shipped unit drops `TYPESAFE_API_KEY` (`UnsetEnvironment` wins over `EnvironmentFile`), sets `LITELLM_MODE=PRODUCTION` so LiteLLM does not load a stray `.env`, and defaults `TYPESAFE_API_BASE` to a closed local port.
-
-The resource name stays in your local `gateway.env`, never in the repository. If you run LiteLLM without the unit, unset `TYPESAFE_API_KEY` and set `LITELLM_MODE=PRODUCTION` yourself. `tests/unit/test_decisions_egress.py` guards the config, the unit and the callback.
-
-Clients call the gateway on `POST /v1/systemone` (System One body: `state` plus a `questions` object) or `POST /v1/decisions` (OpenAI decisions body: `input` plus a `questions` list). Decision models are not added to the Codex catalog, and the compatibility callback ignores these routes. Verify a deployment with:
+Clients call the gateway on `POST /v1/systemone` (System One body: `state` plus a `questions` object) or `POST /v1/decisions` (OpenAI decisions body: `input` plus a `questions` list). Decision models are not added to the Codex catalog, and the tool-compatibility transformations ignore these routes. Verify a deployment with:
 
 ```bash
 bash tests/live/decisions.sh <port> [model_name]
@@ -254,8 +251,6 @@ bash tests/live/decisions.sh <port> [model_name]
 ### Profile C — models without tool calling
 
 Profile C is for models without tool calling, such as `Llama-4-Maverick` or `mistral-medium-3-5`. It is unusable with Codex because Codex requires tool calls. Do not add compatibility flags as a workaround.
-
-Across all profiles, the only models verified live are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7`. Every other deployment must pass the live matrix before it is exposed.
 
 ## Codex setup
 
@@ -358,17 +353,24 @@ To roll back a LiteLLM upgrade, check out the previous `requirements.in` and loc
 ## Limitations and operational facts
 
 - **Composed root schemas:** partner models cannot use tools whose root schema is composed (for example the desktop app's `automation_update`); those tools are intentionally removed from partner-model requests.
-- **grok-4.7:** expect roughly 70–140 seconds per matrix task.
+- **grok-4.7:** expect roughly 70–140 seconds per matrix task. Under the full matrix it can hit Azure `429` and slow reconnects; rerun the case before treating it as a gateway failure.
 - **Context window versus TPM:** a single request cannot exceed the deployment's tokens-per-minute limit. When a catalog `context_window` is larger than that limit (for example grok-4.7 with 80K TPM and a 500K window), set `auto_compact_token_limit` in the Codex catalog entry below the TPM limit so Codex compacts the conversation before Azure returns `429`.
 - **Partner file edits:** DeepSeek, Kimi, and grok never receive `apply_patch` because their Codex catalog entries set `apply_patch_tool_type` to `null`. They write files through the shell instead. The matrix patch case checks the resulting file, not which tool performed the edit.
 - **Kimi-K2.7-Code:** it can occasionally return an empty final answer or skip a tool call. This is observed model behavior; retry the case before treating it as a gateway failure.
 - **Authentication without a database:** a missing key is denied with 401. A wrong key can be denied with 400 and `No connected db`; it is still denied. `prisma==0.15.0` remains pinned in `requirements.in` because LiteLLM's auth error handler (1.104.2 and 1.105.0) imports it even when no database is configured.
-- **Clients must authenticate:** the gateway binds to `127.0.0.1` and requires `LITELLM_MASTER_KEY`; every client (Codex or any other tool) must send it as a Bearer token.
-- **Logs:** neither request bodies nor secrets are logged by this gateway.
 - **Compatibility evidence:** Microsoft documentation is inconsistent about which partner deployments support `/openai/v1/responses`. The live matrix, not a catalog claim, is the source of truth.
 - **User-unit sandboxing:** on hosts that restrict unprivileged user namespaces (for example Ubuntu 24.04+ AppArmor defaults), systemd user units ignore `ProtectSystem` and `ProtectHome`. The unit intentionally does not rely on those directives.
-- **Retries and concurrency:** `num_retries: 2` on Kimi-K2.7-Code, DeepSeek-V4-Flash, and grok-4.7 retries short-window `429` and Azure peak-load rejections. LiteLLM 1.105.0 `max_parallel_requests` rejects with `429` instead of queueing, so it is intentionally not used; parallel subagent bursts and grok-4.7 desktop use still need an Azure quota increase.
+- **Retries and concurrency:** partner models can return upstream `429` responses (for example `x-ratelimit-type: InferenceContainer`) even with quota available. `num_retries: 2` on Kimi-K2.7-Code, DeepSeek-V4-Flash, and grok-4.7 retries short-window `429` and Azure peak-load rejections (add it to another entry only if that upstream returns frequent `429`s), and the Codex request and stream retries cover the rest. LiteLLM 1.105.0 `max_parallel_requests` rejects with `429` instead of queueing, so it is intentionally not used; parallel subagent bursts and grok-4.7 desktop use still need an Azure quota increase.
 
 ## Security notes
 
-Keep secrets only in the mode-0600 files `~/.config/litellm-foundry-gateway/gateway.env` and `~/.codex/.env`. Never commit the gateway environment file, never print secret values, and do not run LiteLLM with detailed debugging outside a throwaway test.
+- **Secrets:** keep them only in the mode-0600 files `~/.config/litellm-foundry-gateway/gateway.env` and `~/.codex/.env`. Never commit them and never print their values.
+- **Clients must authenticate:** the gateway binds to `127.0.0.1` and requires `LITELLM_MASTER_KEY`; every client (Codex or any other tool) must send it as a Bearer token.
+- **Empty master key:** without a master key LiteLLM serves without authentication, so the unit's `ExecStartPre` refuses to start when `LITELLM_MASTER_KEY` is empty.
+- **Decision-call hardening:** the `typesafe/` provider falls back to `TYPESAFE_API_BASE`, then `https://api.typesafe.ai`, and to `TYPESAFE_API_KEY` whenever a config value is empty. Layers, strongest first:
+  - The callback guard (`async_pre_call_check`) is the enforcing layer. It works on the resolved deployment, so it holds whatever the environment contains, and the router runs it for every decision call, including internal ones. `tests/unit/test_decisions_egress.py` guards the config, the unit and the callback.
+  - The unit drops `TYPESAFE_API_KEY` with `UnsetEnvironment`, which wins over `EnvironmentFile`.
+  - The unit defaults `TYPESAFE_API_BASE` to a closed local port. This is only a default: systemd lets an `EnvironmentFile` line override `Environment=`.
+  - The unit sets `LITELLM_MODE=PRODUCTION` so LiteLLM does not load a stray `.env`.
+- **Running without the unit:** unset `TYPESAFE_API_KEY` and `TYPESAFE_API_BASE`, set `LITELLM_MODE=PRODUCTION`, and always set `LITELLM_MASTER_KEY`.
+- **Logs and debugging:** the gateway logs neither request bodies nor secrets. Do not run LiteLLM with detailed debugging outside a throwaway test.
