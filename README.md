@@ -72,7 +72,8 @@ The file uses these variable names; keep its values private:
 - `AZURE_FOUNDRY_API_KEY`
 - `LITELLM_MASTER_KEY` — an `sk-`-prefixed gateway key.
 - `AZURE_FOUNDRY_DECISIONS_BASE` — only for Profile D decision models: the same resource URL plus `/providers/microsoft`.
-- `TYPESAFE_API_KEY` — optional; reserved for a future TypeSafe Jev deployment and unused by the current configuration.
+
+The gateway never needs `TYPESAFE_API_KEY`, `TYPESAFE_API_BASE` or `GEMINI_API_KEY`. Keep them out of this file (see Profile D for why).
 
 Render the user unit template with this checkout's absolute path, install it and start it:
 
