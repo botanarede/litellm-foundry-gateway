@@ -196,7 +196,7 @@ async def test_r2_2_cleans_mapping_after_stream_error(
     monkeypatch.setattr(compat_module, "is_compat", lambda _model: True)
     callback = compat_module.codex_tools_compat
     data = {
-        "model": "grok-4.6",
+        "model": "grok-4.7",
         "litellm_call_id": "stream-error",
         "tools": [_namespace_tool()],
     }
@@ -224,7 +224,7 @@ async def test_r2_2_cleans_mapping_after_failure_hook(
     monkeypatch.setattr(compat_module, "is_compat", lambda _model: True)
     callback = compat_module.codex_tools_compat
     data = {
-        "model": "grok-4.6",
+        "model": "grok-4.7",
         "litellm_call_id": "failure",
         "tools": [_namespace_tool()],
     }

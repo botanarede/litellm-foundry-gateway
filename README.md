@@ -311,7 +311,7 @@ MATRIX_DEFAULT_PROVIDER=1 bash tests/live/matrix.sh 4000
 
 Each run writes protected logs below `~/.local/state/litellm-foundry-gateway/matrix/` and stores the latest path for that port there. The matrix verifies the shell, namespaced MCP, and file-edit outcomes for each model.
 
-For a desktop smoke test, run the desktop app's bundled Codex binary with `codex exec` and the same temporary provider override used by the non-default matrix mode. Smoke at least one Profile A and two Profile B models (for example `gpt-6-astra`, `DeepSeek-V4-Pro`, and `Kimi-K2.7-Code`) before restarting the desktop app.
+For a desktop smoke test, run the desktop app's bundled Codex binary with `codex exec` and the same temporary provider override used by the non-default matrix mode. Smoke at least one Profile A and two Profile B models (for example `gpt-6.1-sol`, `DeepSeek-V4-Pro`, and `Kimi-K2.7-Code`) before restarting the desktop app.
 
 ## Upgrade procedure
 
