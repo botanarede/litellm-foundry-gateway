@@ -3,10 +3,12 @@
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import HTTPException
 from litellm.integrations.custom_logger import CustomLogger
 
+AZURE_HOSTS = (".openai.azure.com", ".services.ai.azure.com")
 SEP = "__"
 MAX_NAME = 64
 _COMPOSITIONS = ("anyOf", "oneOf", "allOf", "not")
@@ -116,6 +118,21 @@ class CodexToolsCompat(CustomLogger):
     def __init__(self) -> None:
         super().__init__()
         self._maps: dict[str, ToolMapping] = {}
+
+    async def async_pre_call_check(self, deployment: dict, parent_otel_span: Any) -> None:
+        """Refuse decision calls whose base or key would leave the Azure Foundry resource.
+
+        The typesafe/ provider falls back to TYPESAFE_API_BASE, then a third-party host, when the
+        configured base is empty. The Jev classifier calls the router directly, so only this
+        router-level hook sees every decision call.
+        """
+        params = deployment.get("litellm_params") or {}
+        if not str(params.get("model", "")).startswith("typesafe/"):
+            return None
+        base = urlparse(str(params.get("api_base") or ""))
+        if base.scheme != "https" or not (base.hostname or "").endswith(AZURE_HOSTS) or not params.get("api_key"):
+            raise ValueError("decision deployment needs an https Azure Foundry api_base and an api_key")
+        return None
 
     async def async_pre_call_hook(
         self, user_api_key_dict: Any, cache: Any, data: dict[str, Any], call_type: str
