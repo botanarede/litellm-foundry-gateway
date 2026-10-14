@@ -71,7 +71,8 @@ The file uses these variable names; keep its values private:
 - `AZURE_FOUNDRY_API_BASE` — the bare resource URL, such as `https://<resource>.openai.azure.com`.
 - `AZURE_FOUNDRY_API_KEY`
 - `LITELLM_MASTER_KEY` — an `sk-`-prefixed gateway key.
-- `TYPESAFE_API_KEY` — optional; reserved for a future LiteLLM decisions provider and unused by the current configuration.
+- `AZURE_FOUNDRY_DECISIONS_BASE` — only for Profile D decision models: the same resource URL plus `/providers/microsoft`.
+- `TYPESAFE_API_KEY` — optional; reserved for a future TypeSafe Jev deployment and unused by the current configuration.
 
 Render the user unit template with this checkout's absolute path, install it and start it:
 
@@ -222,6 +223,24 @@ Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek
       <<: *profile_b_partner
       model: azure/Mistral-Large-3
     model_info: *profile_b_compat
+```
+
+### Profile D — decision models
+
+Decision models such as `Microsoft-Decision-1` do not generate text; they return a calibrated probability for each option of typed questions (`noul`, `choice`, `score`). Foundry serves them on `<resource>/providers/microsoft/v1/systemone`, which uses the same System One wire format as TypeSafe's Jev. LiteLLM's built-in `typesafe/` decisions provider therefore handles them with configuration only; the provider prefix names the wire format, not the vendor.
+
+```yaml
+  - model_name: Decision-1
+    litellm_params:
+      model: typesafe/Decision-1                       # typesafe/<deployment>
+      api_base: os.environ/AZURE_FOUNDRY_DECISIONS_BASE  # <resource URL>/providers/microsoft
+      api_key: os.environ/AZURE_FOUNDRY_API_KEY
+```
+
+Clients call the gateway on `POST /v1/systemone` (System One body: `state` plus a `questions` object) or `POST /v1/decisions` (OpenAI decisions body: `input` plus a `questions` list). Decision models are not added to the Codex catalog, and the compatibility callback ignores these routes. Verify a deployment with:
+
+```bash
+bash tests/live/decisions.sh <port> [model_name]
 ```
 
 ### Profile C — models without tool calling

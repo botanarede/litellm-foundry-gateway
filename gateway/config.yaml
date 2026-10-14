@@ -33,6 +33,15 @@ model_list:
       num_retries: 3
     model_info: *compat
 
+  # Profile D: decision models (System One wire format) on the Foundry Microsoft provider route.
+  # Served on /v1/decisions and /v1/systemone; not used by Codex and ignored by the callback.
+  - model_name: Decision-1
+    litellm_params:
+      model: typesafe/Decision-1
+      # <AZURE_FOUNDRY_API_BASE>/providers/microsoft
+      api_base: os.environ/AZURE_FOUNDRY_DECISIONS_BASE
+      api_key: os.environ/AZURE_FOUNDRY_API_KEY
+
 litellm_settings:
   callbacks: ["codex_tools_compat.codex_tools_compat"]
   request_timeout: 600
