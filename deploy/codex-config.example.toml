@@ -14,7 +14,7 @@ wire_api = "responses"
 supports_websockets = false
 request_max_retries = 4
 stream_max_retries = 5
-stream_idle_timeout_ms = 600000      # grok-4.6 needs 105-186 s per task
+stream_idle_timeout_ms = 600000      # partner models can take minutes per task
 
 # Manual fallback: the direct Azure AI Foundry provider (unchanged).
 [model_providers.azure-foundry]

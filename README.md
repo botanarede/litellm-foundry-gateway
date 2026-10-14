@@ -18,9 +18,9 @@ It addresses the failures reproduced against partner models:
 - **F1:** DeepSeek and Kimi reject `reasoning.effort`; Profile B removes it before the upstream request.
 - **F2:** Foundry rejects function tools with a composed or non-object root schema; the callback drops those unsafe tools rather than corrupting their meaning.
 - **F3:** Foundry returns invalid content for Codex `namespace` tools; the callback flattens their child functions for the upstream request and restores the namespace in the response.
-- **F4:** `grok-4.6` can return an intermittent `429` with `x-ratelimit-type: InferenceContainer`; its deployment is configured with retries.
+- **F4:** partner models can return upstream `429` responses (for example `x-ratelimit-type: InferenceContainer`) even with quota available; Codex request retries cover them.
 
-The initial Foundry deployments are `gpt-6.1-sol`, `gpt-6-astra`, `DeepSeek-V4-Pro`, `Kimi-K2.7-Code`, and `grok-4.6`. Adding another Foundry deployment changes configuration, not gateway code.
+The configured Foundry deployments are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7`. Adding another Foundry deployment changes configuration, not gateway code.
 
 ## Verified status
 
@@ -29,12 +29,12 @@ Verified on 2026-10-09 with LiteLLM 1.104.2, Codex CLI 0.160 and the Codex/ChatG
 | Model | Profile | Codex CLI live matrix (shell, namespaced MCP, file edit) | Desktop app |
 |---|---|---|---|
 | `gpt-6.1-sol` | A | 3/3 PASS | Functional |
-| `gpt-6-astra` | A | 3/3 PASS | Functional |
 | `DeepSeek-V4-Pro` | B | 3/3 PASS | Functional |
+| `DeepSeek-V4-Flash` | B | 3/3 PASS | Pending manual test |
 | `Kimi-K2.7-Code` | B | 3/3 PASS | Functional |
-| `grok-4.6` | B | 3/3 PASS (slow, see limitations) | Functional |
+| `grok-4.7` | B | 3/3 PASS (slow, see limitations) | Pending manual test |
 
-The CLI matrix ran through the installed default provider on `127.0.0.1:4000` (15/15 PASS). The desktop app was tested manually with all five models through the same gateway. The unit suite (`pytest tests/unit`) passes.
+The latest CLI matrix (2026-10-13) passed 15/15 on a candidate instance before the service restart; every model then answered through `127.0.0.1:4000`. The unit suite (`pytest tests/unit`) passes.
 
 ## Install and run the user service
 
@@ -140,7 +140,7 @@ The following blocks are examples, not whole replacements. Copy only entries tha
 
 ### Profile A — OpenAI model on Foundry
 
-Profile A is native Azure Responses passthrough. Only `gpt-6.1-sol` and `gpt-6-astra` are verified live from the examples below.
+Profile A is native Azure Responses passthrough. Only `gpt-6.1-sol` is verified live from the examples below.
 
 ```yaml
   - model_name: gpt-6.1-sol
@@ -177,7 +177,7 @@ Profile A is native Azure Responses passthrough. Only `gpt-6.1-sol` and `gpt-6-a
 
 ### Profile B — partner model with tool calling
 
-Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek-V4-Pro`, `Kimi-K2.7-Code`, and `grok-4.6` are verified live from the examples below. Preserve `num_retries: 3` for `grok-4.6`.
+Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7` are verified live from the examples below. Add `num_retries` to an entry only if its upstream returns frequent `429` responses.
 
 ```yaml
   - model_name: DeepSeek-V4-Pro
@@ -189,6 +189,11 @@ Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek
       additional_drop_params: ["reasoning.effort"]
     model_info: &profile_b_compat
       codex_tools_compat: true
+  - model_name: DeepSeek-V4-Flash
+    litellm_params:
+      <<: *profile_b_partner
+      model: azure/DeepSeek-V4-Flash
+    model_info: *profile_b_compat
   - model_name: DeepSeek-V3.2
     litellm_params:
       <<: *profile_b_partner
@@ -203,12 +208,6 @@ Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek
     litellm_params:
       <<: *profile_b_partner
       model: azure/Kimi-K2.6
-    model_info: *profile_b_compat
-  - model_name: grok-4.6
-    litellm_params:
-      <<: *profile_b_partner
-      model: azure/grok-4.6
-      num_retries: 3
     model_info: *profile_b_compat
   - model_name: grok-4.7
     litellm_params:
@@ -231,7 +230,7 @@ Profile B adds `additional_drop_params` and `codex_tools_compat`. Only `DeepSeek
 
 Profile C is for models without tool calling, such as `Llama-4-Maverick` or `mistral-medium-3-5`. It is unusable with Codex because Codex requires tool calls. Do not add compatibility flags as a workaround.
 
-Across all profiles, the only models verified live are `gpt-6.1-sol`, `gpt-6-astra`, `DeepSeek-V4-Pro`, `Kimi-K2.7-Code`, and `grok-4.6`. Every other deployment must pass the live matrix before it is exposed.
+Across all profiles, the only models verified live are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7`. Every other deployment must pass the live matrix before it is exposed.
 
 ## Codex setup
 
@@ -334,7 +333,8 @@ To roll back a LiteLLM upgrade, check out the previous `requirements.in` and loc
 ## Limitations and operational facts
 
 - **Composed root schemas:** partner models cannot use tools whose root schema is composed (for example the desktop app's `automation_update`); those tools are intentionally removed from partner-model requests.
-- **grok-4.6:** expect roughly 105–186 seconds per matrix task. It may receive intermittent upstream `429` `InferenceContainer` responses despite available quota; LiteLLM retries them.
+- **grok-4.7:** expect roughly 70–140 seconds per matrix task.
+- **Context window versus TPM:** a single request cannot exceed the deployment's tokens-per-minute limit. When a catalog `context_window` is larger than that limit (for example grok-4.7 with 80K TPM and a 500K window), set `auto_compact_token_limit` in the Codex catalog entry below the TPM limit so Codex compacts the conversation before Azure returns `429`.
 - **Partner file edits:** DeepSeek, Kimi, and grok never receive `apply_patch` because their Codex catalog entries set `apply_patch_tool_type` to `null`. They write files through the shell instead. The matrix patch case checks the resulting file, not which tool performed the edit.
 - **Kimi-K2.7-Code:** it can occasionally return an empty final answer or skip a tool call. This is observed model behavior; retry the case before treating it as a gateway failure.
 - **Authentication without a database:** a missing key is denied with 401. A wrong key can be denied with 400 and `No connected db`; it is still denied. `prisma==0.15.0` remains pinned in `requirements.in` because LiteLLM 1.104.2's auth error handler imports it even when no database is configured.

@@ -7,10 +7,6 @@ model_list:
       api_base: os.environ/AZURE_FOUNDRY_API_BASE
       api_version: v1
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
-  - model_name: gpt-6-astra
-    litellm_params:
-      <<: *foundry
-      model: azure/gpt-6-astra
 
   # Profile B: Partner models remove unsupported reasoning effort and enable Codex tool compatibility.
   - model_name: DeepSeek-V4-Pro
@@ -20,15 +16,20 @@ model_list:
       additional_drop_params: ["reasoning.effort"]
     model_info: &compat
       codex_tools_compat: true
+  - model_name: DeepSeek-V4-Flash
+    litellm_params:
+      <<: *partner
+      model: azure/DeepSeek-V4-Flash
+    model_info: *compat
   - model_name: Kimi-K2.7-Code
     litellm_params:
       <<: *partner
       model: azure/Kimi-K2.7-Code
     model_info: *compat
-  - model_name: grok-4.6
+  - model_name: grok-4.7
     litellm_params:
       <<: *partner
-      model: azure/grok-4.6
+      model: azure/grok-4.7
       num_retries: 3
     model_info: *compat
 
