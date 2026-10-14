@@ -9,16 +9,11 @@ After=network-online.target
 
 [Service]
 EnvironmentFile=%h/.config/litellm-foundry-gateway/gateway.env
-# Decision models use LiteLLM's typesafe/ provider, which falls back to TYPESAFE_API_BASE, then
-# https://api.typesafe.ai, and to TYPESAFE_API_KEY when a config value is empty. Defence in depth:
-#  1. The callback refuses any typesafe/ deployment whose resolved api_base is empty, not https or
-#     not an Azure host, whatever the environment holds.
-#  2. UnsetEnvironment drops TYPESAFE_API_KEY (it wins over EnvironmentFile, see systemd.exec(5)).
-#  3. TYPESAFE_API_BASE below is only a default: an EnvironmentFile line would override it.
-#  4. LITELLM_MODE=PRODUCTION stops LiteLLM from loading a stray .env found above its package.
+# TypeSafe fallback and stray .env hardening; see README "Security notes".
 Environment=TYPESAFE_API_BASE=http://127.0.0.1:9
 Environment=LITELLM_MODE=PRODUCTION
 UnsetEnvironment=TYPESAFE_API_KEY
+ExecStartPre=/bin/sh -c 'test -n "$${LITELLM_MASTER_KEY}" || { echo "LITELLM_MASTER_KEY is empty; refusing to start without auth" >&2; exit 1; }'
 ExecStart=%h/.local/share/litellm-foundry-gateway/venv/bin/litellm \
   --config @REPO_DIR@/gateway/config.yaml --host 127.0.0.1 --port 4000
 Restart=on-failure

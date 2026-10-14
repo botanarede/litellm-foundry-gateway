@@ -122,3 +122,10 @@ async def test_guard_ignores_non_decision_deployments() -> None:
     """Chat deployments are not decision calls and are never blocked by the guard."""
     deployment = _deployment("azure/gpt-6.1-sol", None, None)
     assert await compat_module.codex_tools_compat.async_pre_call_check(deployment, None) is None
+
+
+def test_unit_refuses_to_start_without_master_key() -> None:
+    """Without LITELLM_MASTER_KEY LiteLLM would serve without auth, so the unit must fail first."""
+    pre = [line for line in _unit_lines() if line.startswith("ExecStartPre=")]
+    assert len(pre) == 1
+    assert "LITELLM_MASTER_KEY" in pre[0] and "exit 1" in pre[0]
