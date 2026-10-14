@@ -11,7 +11,7 @@ Codex CLI / desktop app ── Responses API ──> LiteLLM :4000 (loopback, ma
                                                 ├─ azure/<OpenAI deployment>
                                                 └─ azure/<partner deployment> + compatibility callback
 Decision clients ── /v1/systemone, /v1/decisions ──> same process
-                                                └─ typesafe/Decision-1 ── callback guard ──> Foundry resource only
+                                                └─ typesafe/Decision-1 ── callback guard ──> never leaves Azure Foundry hosts (`*.openai.azure.com`, `*.services.ai.azure.com`)
 Optional: model `auto` ──> complexity router ── classifies with Decision-1 ──> one of the models above
 ```
 
@@ -22,7 +22,7 @@ It addresses the failures reproduced against partner models:
 - **F3:** Foundry returns invalid content for Codex `namespace` tools; the callback flattens their child functions for the upstream request and restores the namespace in the response.
 - **F4:** partner models can return upstream `429` responses even with quota available; see "Retries and concurrency" under Limitations.
 
-The configured Foundry deployments are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7`. Adding another Foundry deployment changes configuration, not gateway code.
+The configured Foundry deployments are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7`; the decision model is `Decision-1`, and the optional `auto` router is configured. Adding another Foundry deployment changes configuration, not gateway code.
 
 ## Verified status
 
@@ -241,7 +241,7 @@ Decision models such as `Microsoft-Decision-1` do not generate text; they return
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
 ```
 
-Decision calls never leave the Foundry resource: the callback guard enforces it (see Security notes). The resource name stays in your local `gateway.env`, never in the repository.
+Decision calls never leave Azure Foundry hosts (`*.openai.azure.com`, `*.services.ai.azure.com`). The callback guard enforces this (see Security notes). The resource name stays in your local `gateway.env`, never in the repository.
 
 Clients call the gateway on `POST /v1/systemone` (System One body: `state` plus a `questions` object) or `POST /v1/decisions` (OpenAI decisions body: `input` plus a `questions` list). Decision models are not added to the Codex catalog, and the tool-compatibility transformations ignore these routes. Verify a deployment with:
 
@@ -260,10 +260,11 @@ bash tests/live/decisions.sh <port> [model_name]
 | COMPLEX | `gpt-6.1-sol` |
 | REASONING | `gpt-6.1-sol` |
 
-The classifier is `Decision-1` (`classifier_type: jev`, `deployment_name: Decision-1`, `timeout_ms: 3000`). It reuses the Profile D deployment, so the callback guard applies and the call never leaves the Foundry resource; the classifier config holds no key or base URL. The `NON_REASONING` tier is off by default in LiteLLM and is not used, so no other model can be selected.
+The classifier is `Decision-1` (`classifier_type: jev`, `deployment_name: Decision-1`, `timeout_ms: 3000`). It reuses the Profile D deployment, so the callback guard keeps the call on Azure Foundry hosts (`*.openai.azure.com`, `*.services.ai.azure.com`). The classifier config holds no key or base URL. The `NON_REASONING` tier is off by default in LiteLLM and is not used, so no other model can be selected.
 
-- **Failure behaviour:** if the classifier errors, times out, returns an unknown tier or rejects the input as too large, `classifier_fallback: default_model` routes the request to `DeepSeek-V4-Flash`. The request still succeeds, but `auto` degrades to the cheapest model for that turn.
-- **Session affinity:** `session_affinity: true` pins the model chosen on a session's first turn for the rest of the session. LiteLLM needs a client session id; for Codex clients it reads the `session-id` or `thread-id` request header (the strings are present in Codex CLI 0.160). Without a session id the router classifies every turn.
+- **Failure behaviour:** if the classifier errors, times out, returns an unknown tier or rejects the input as too large, or encounters Decision-1 missing or refused by the callback guard, `classifier_fallback: default_model` routes the request to `DeepSeek-V4-Flash`. The request still succeeds, but `auto` degrades to the cheapest model for that turn.
+- **Session affinity:** `session_affinity: true` pins the model chosen on a session's first turn for the rest of the session. LiteLLM reads the `session-id` or `thread-id` header only when the User-Agent starts with `codex` and the value has at least 8 characters from [A-Za-z0-9_-]; Codex sends both headers ([headers.rs](https://github.com/openai/codex/blob/main/codex-rs/codex-api/src/requests/headers.rs)). The pin lasts 24 h (`session_affinity_ttl_seconds: 86400`) and lives in memory only (a restart clears it). Without a qualifying session id, the router classifies every turn.
+- **Mixed-model sessions:** if a session switches model (no session id, first-turn fallback, expired pin or restart), replayed encrypted reasoning from one model can be rejected by another; start a new session or select an explicit model if that error appears.
 - **What Decision-1 receives:** the current user ask, the system or `instructions` text in full (for Codex, tens of KB on every turn), and up to 3 prior user turns capped at 8,000 characters in total (LiteLLM defaults for `classifier_context_window_size` and `classifier_context_budget_chars`; no per-turn cap). Tool output and Codex harness blocks are excluded. Decision-1 accepts about 64,000 tokens of state (roughly 250,000 characters); probes up to 128,000 characters returned `200` in about 1.5 s, and larger input returns `422`, which takes the fallback path. LiteLLM 1.105.0 has no option to cap or exclude system text for Codex, so the defaults stay; the settings are deliberately not lowered because they are far below the limit.
 - **Cost of misrouting:** a request sent too low gets a weaker answer from `DeepSeek-V4-Flash` or `DeepSeek-V4-Pro`; one sent too high spends `gpt-6.1-sol`. Each classification adds one Decision-1 call (about 0.5–1.5 s). Pin an explicit model when the choice matters.
 - **Tool compatibility:** `auto` carries `codex_tools_compat: true` because the callback keys on the requested model name. Tools are therefore flattened and restored for every target, including `gpt-6.1-sol`.
@@ -381,7 +382,7 @@ To roll back a LiteLLM upgrade, check out the previous `requirements.in` and loc
 
 ## Limitations and operational facts
 
-- **Composed root schemas:** partner models cannot use tools whose root schema is composed (for example the desktop app's `automation_update`); those tools are intentionally removed from partner-model requests.
+- **Composed root schemas:** partner models cannot use tools whose root schema is composed (for example the desktop app's `automation_update`); those tools are intentionally removed from partner-model requests. Under `auto`, those tools are also removed when the router picks `gpt-6.1-sol`.
 - **grok-4.7:** expect roughly 70–140 seconds per matrix task. Under the full matrix it can hit Azure `429` and slow reconnects; rerun the case before treating it as a gateway failure.
 - **Context window versus TPM:** a single request cannot exceed the deployment's tokens-per-minute limit. When a catalog `context_window` is larger than that limit (for example grok-4.7 with 80K TPM and a 500K window), set `auto_compact_token_limit` in the Codex catalog entry below the TPM limit so Codex compacts the conversation before Azure returns `429`.
 - **Partner file edits:** DeepSeek, Kimi, and grok never receive `apply_patch` because their Codex catalog entries set `apply_patch_tool_type` to `null`. They write files through the shell instead. The matrix patch case checks the resulting file, not which tool performed the edit.
@@ -401,5 +402,6 @@ To roll back a LiteLLM upgrade, check out the previous `requirements.in` and loc
   - The unit drops `TYPESAFE_API_KEY` with `UnsetEnvironment`, which wins over `EnvironmentFile`.
   - The unit defaults `TYPESAFE_API_BASE` to a closed local port. This is only a default: systemd lets an `EnvironmentFile` line override `Environment=`.
   - The unit sets `LITELLM_MODE=PRODUCTION` so LiteLLM does not load a stray `.env`.
-- **Running without the unit:** unset `TYPESAFE_API_KEY` and `TYPESAFE_API_BASE`, set `LITELLM_MODE=PRODUCTION`, and always set `LITELLM_MASTER_KEY`.
+- **Running without the unit:** unset `TYPESAFE_API_KEY`, export `TYPESAFE_API_BASE=http://127.0.0.1:9` (do **not** unset it, because unset falls back to the public `api.typesafe.ai`), and set `LITELLM_MODE=PRODUCTION`. Always set `LITELLM_MASTER_KEY`.
+- **TypeSafe pass-through:** LiteLLM's `/typesafe/*` pass-through route skips the callback guard and forwards the client body to `TYPESAFE_API_BASE`; the Azure key is not attached, and the closed-port default keeps it local.
 - **Logs and debugging:** the gateway logs neither request bodies nor secrets. Do not run LiteLLM with detailed debugging outside a throwaway test.
