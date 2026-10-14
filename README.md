@@ -238,6 +238,8 @@ Decision models such as `Microsoft-Decision-1` do not generate text; they return
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
 ```
 
+**Credentials stay on the Foundry resource.** The `typesafe/` provider falls back to `TYPESAFE_API_BASE`, then `https://api.typesafe.ai`, and to `TYPESAFE_API_KEY` whenever the config value is empty. The shipped unit closes that fallback: `UnsetEnvironment=TYPESAFE_API_KEY` drops the key and `Environment=TYPESAFE_API_BASE=http://127.0.0.1:9` points the base at a closed local port, so a missing `AZURE_FOUNDRY_DECISIONS_BASE` fails locally instead of sending a credential to a third-party host. If you run LiteLLM without the unit, export the same two settings yourself. `tests/unit/test_decisions_egress.py` fails when a `typesafe/` entry does not take both its base and key from `AZURE_FOUNDRY_*` variables, or when the unit or example env drift from this rule.
+
 Clients call the gateway on `POST /v1/systemone` (System One body: `state` plus a `questions` object) or `POST /v1/decisions` (OpenAI decisions body: `input` plus a `questions` list). Decision models are not added to the Codex catalog, and the compatibility callback ignores these routes. Verify a deployment with:
 
 ```bash
