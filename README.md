@@ -12,6 +12,7 @@ Codex CLI / desktop app ── Responses API ──> LiteLLM :4000 (loopback, ma
                                                 └─ azure/<partner deployment> + compatibility callback
 Decision clients ── /v1/systemone, /v1/decisions ──> same process
                                                 └─ typesafe/Decision-1 ── callback guard ──> Foundry resource only
+Optional: model `auto` ──> complexity router ── classifies with Decision-1 ──> one of the models above
 ```
 
 It addresses the failures reproduced against partner models:
@@ -35,7 +36,7 @@ Verified with LiteLLM 1.105.0, Codex CLI 0.160 and the Codex/ChatGPT desktop app
 | `Kimi-K2.7-Code` | B | 3/3 PASS | Functional |
 | `grok-4.7` | B | 1/3 (Azure 429, see limitations) | Pending manual test |
 
-The latest full CLI matrix (2026-10-14) passed 13/15 on `127.0.0.1:4000`. The four non-grok models passed 3/3; `grok-4.7` passed shell and failed MCP (Azure 429 rate limit) and file edit (timeout after reconnects). The `Decision-1` smoke test (`tests/live/decisions.sh`) passed 4/4. The unit suite (`pytest tests/unit`) passes.
+The latest full CLI matrix (2026-10-14) passed 13/15 on `127.0.0.1:4000`. The four non-grok models passed 3/3; `grok-4.7` passed shell and failed MCP (Azure 429 rate limit) and file edit (timeout after reconnects). The `Decision-1` smoke test (`tests/live/decisions.sh`) passed 4/4. The optional `auto` router passed 3/3 on a temporary instance, and a simple, a medium and a hard prompt were served by `DeepSeek-V4-Flash`, `DeepSeek-V4-Pro` and `gpt-6.1-sol`. The unit suite (`pytest tests/unit`) passes.
 
 ## Install and run the user service
 
@@ -247,6 +248,34 @@ Clients call the gateway on `POST /v1/systemone` (System One body: `state` plus 
 ```bash
 bash tests/live/decisions.sh <port> [model_name]
 ```
+
+### Profile E — optional `auto` router
+
+`auto` is a LiteLLM complexity router (`auto_router/complexity_router`) that picks a model per request. It is optional: it runs only when a client selects the model `auto`, and every explicit model behaves exactly as before. There are no router-level fallbacks.
+
+| Tier | Model |
+|---|---|
+| SIMPLE | `DeepSeek-V4-Flash` |
+| MEDIUM | `DeepSeek-V4-Pro` |
+| COMPLEX | `gpt-6.1-sol` |
+| REASONING | `gpt-6.1-sol` |
+
+The classifier is `Decision-1` (`classifier_type: jev`, `deployment_name: Decision-1`, `timeout_ms: 3000`). It reuses the Profile D deployment, so the callback guard applies and the call never leaves the Foundry resource; the classifier config holds no key or base URL. The `NON_REASONING` tier is off by default in LiteLLM and is not used, so no other model can be selected.
+
+- **Failure behaviour:** if the classifier errors, times out, returns an unknown tier or rejects the input as too large, `classifier_fallback: default_model` routes the request to `DeepSeek-V4-Flash`. The request still succeeds, but `auto` degrades to the cheapest model for that turn.
+- **Session affinity:** `session_affinity: true` pins the model chosen on a session's first turn for the rest of the session. LiteLLM needs a client session id; for Codex clients it reads the `session-id` or `thread-id` request header (the strings are present in Codex CLI 0.160). Without a session id the router classifies every turn.
+- **What Decision-1 receives:** the current user ask, the system or `instructions` text in full (for Codex, tens of KB on every turn), and up to 3 prior user turns capped at 8,000 characters in total (LiteLLM defaults for `classifier_context_window_size` and `classifier_context_budget_chars`; no per-turn cap). Tool output and Codex harness blocks are excluded. Decision-1 accepts about 64,000 tokens of state (roughly 250,000 characters); probes up to 128,000 characters returned `200` in about 1.5 s, and larger input returns `422`, which takes the fallback path. LiteLLM 1.105.0 has no option to cap or exclude system text for Codex, so the defaults stay; the settings are deliberately not lowered because they are far below the limit.
+- **Cost of misrouting:** a request sent too low gets a weaker answer from `DeepSeek-V4-Flash` or `DeepSeek-V4-Pro`; one sent too high spends `gpt-6.1-sol`. Each classification adds one Decision-1 call (about 0.5–1.5 s). Pin an explicit model when the choice matters.
+- **Tool compatibility:** `auto` carries `codex_tools_compat: true` because the callback keys on the requested model name. Tools are therefore flattened and restored for every target, including `gpt-6.1-sol`.
+
+Test it on a temporary port, never on the live service:
+
+```bash
+bash tests/live/decisions.sh <port>
+MATRIX_MODELS="auto:none" MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh <port>
+```
+
+Also send a simple, a medium and a hard prompt to model `auto` through `/v1/responses` and check which deployment served each one.
 
 ### Profile C — models without tool calling
 
