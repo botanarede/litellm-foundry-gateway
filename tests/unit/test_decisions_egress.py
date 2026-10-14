@@ -1,8 +1,9 @@
-"""Static checks that keep decision-model credentials on the Foundry resource.
+"""Checks that keep decision-model credentials on the Azure Foundry resource.
 
 LiteLLM's `typesafe/` decisions provider falls back to TYPESAFE_API_BASE, then
-https://api.typesafe.ai, and to TYPESAFE_API_KEY when a config value is empty. These tests make
-sure the shipped config and unit never leave that fallback reachable.
+https://api.typesafe.ai, and to TYPESAFE_API_KEY when a config value is empty. Two layers close
+that: a router-level guard in the callback (the resolved api_base must be an https Azure host)
+and the systemd unit. The repository never holds the resource name.
 """
 
 import re
@@ -12,8 +13,12 @@ from typing import Any
 import pytest
 import yaml
 
+import codex_tools_compat as compat_module
+
 REPOSITORY_ROOT = Path(__file__).parents[2]
-ENV_REF = re.compile(r"^os\.environ/AZURE_FOUNDRY_[A-Z_]+$")
+KEY_REF = re.compile(r"^os\.environ/AZURE_FOUNDRY_API_KEY$")
+BASE_REF = re.compile(r"^os\.environ/AZURE_FOUNDRY_DECISIONS_BASE$")
+AZURE_BASE = "https://example.openai.azure.com/providers/microsoft"
 
 
 def _config() -> dict[str, Any]:
@@ -29,37 +34,91 @@ def _decision_entries() -> list[dict[str, Any]]:
     ]
 
 
+def _unit_lines() -> set[str]:
+    unit = (REPOSITORY_ROOT / "deploy" / "litellm-foundry-gateway.service").read_text(encoding="utf-8")
+    return {line.strip() for line in unit.splitlines()}
+
+
 def test_decision_entries_take_base_and_key_from_foundry_env_vars() -> None:
-    """A typesafe/ entry without both Foundry env references would use the TypeSafe fallback."""
-    for entry in _decision_entries():
+    """The repo holds no resource name; the callback guard enforces the Azure host at call time."""
+    entries = _decision_entries()
+    assert entries, "Profile D must keep a typesafe/ decision entry"
+    for entry in entries:
         params = entry["litellm_params"]
-        assert ENV_REF.match(str(params.get("api_base"))), entry["model_name"]
-        assert ENV_REF.match(str(params.get("api_key"))), entry["model_name"]
+        assert BASE_REF.match(str(params.get("api_base"))), entry["model_name"]
+        assert KEY_REF.match(str(params.get("api_key"))), entry["model_name"]
+
+
+def test_repository_config_holds_no_azure_hostname() -> None:
+    """Tracked config must not embed a resource hostname (tenant identifier)."""
+    text = (REPOSITORY_ROOT / "gateway" / "config.yaml").read_text(encoding="utf-8")
+    assert not re.search(r"https?://(?!<)[^\s]*azure\.com", text)
 
 
 def test_jev_classifier_uses_a_configured_deployment() -> None:
-    """A Jev classifier must name a deployment; inline api_key/api_base would bypass the gateway."""
+    """A Jev classifier must name a deployment; inline api_key/api_base would bypass the guard."""
+    names = {entry["model_name"] for entry in _decision_entries()}
     for entry in _config()["model_list"]:
         router_config = entry["litellm_params"].get("complexity_router_config") or {}
         jev = router_config.get("jev_classifier_config")
         if jev is not None:
-            assert jev.get("deployment_name") in {e["model_name"] for e in _decision_entries()}
+            assert jev.get("deployment_name") in names
             assert "api_key" not in jev and "api_base" not in jev
 
 
-def test_unit_closes_the_typesafe_fallback_when_decision_models_exist() -> None:
-    """The systemd unit must drop TYPESAFE_API_KEY and point TYPESAFE_API_BASE at a local port."""
-    if not _decision_entries():
-        pytest.skip("no decision models configured")
-    unit = (REPOSITORY_ROOT / "deploy" / "litellm-foundry-gateway.service").read_text(encoding="utf-8")
-    lines = {line.strip() for line in unit.splitlines()}
+def test_unit_closes_the_typesafe_fallbacks() -> None:
+    """The unit drops TYPESAFE_API_KEY, defaults the base to a local port and disables stray .env."""
+    lines = _unit_lines()
     assert "UnsetEnvironment=TYPESAFE_API_KEY" in lines
     assert "Environment=TYPESAFE_API_BASE=http://127.0.0.1:9" in lines
+    assert "Environment=LITELLM_MODE=PRODUCTION" in lines
 
 
 def test_env_example_does_not_ship_third_party_decision_credentials() -> None:
     """The example env file must not offer a TypeSafe or Gemini key to the gateway."""
     example = (REPOSITORY_ROOT / "deploy" / "gateway.env.example").read_text(encoding="utf-8")
     keys = {line.split("=", 1)[0] for line in example.splitlines() if "=" in line and not line.startswith("#")}
-    assert "TYPESAFE_API_KEY" not in keys
-    assert "GEMINI_API_KEY" not in keys
+    assert not keys & {"TYPESAFE_API_KEY", "TYPESAFE_API_BASE", "GEMINI_API_KEY"}
+
+
+def _deployment(model: str, api_base: Any, api_key: Any = "key") -> dict[str, Any]:
+    return {"litellm_params": {"model": model, "api_base": api_base, "api_key": api_key}}
+
+
+async def test_guard_accepts_an_azure_decision_deployment() -> None:
+    """A decision deployment on an Azure host with a key passes."""
+    assert await compat_module.codex_tools_compat.async_pre_call_check(_deployment("typesafe/D", AZURE_BASE), None) is None
+    services = "https://example.services.ai.azure.com/providers/microsoft"
+    assert await compat_module.codex_tools_compat.async_pre_call_check(_deployment("typesafe/D", services), None) is None
+
+
+@pytest.mark.parametrize(
+    "api_base",
+    [
+        None,
+        "",
+        "https://api.typesafe.ai",
+        "http://127.0.0.1:9",
+        "http://example.openai.azure.com",
+        "https://openai.azure.com.attacker.example",
+        "https://attacker.example/example.openai.azure.com",
+        "https://example.openai.azure.com@attacker.example",
+    ],
+)
+async def test_guard_rejects_a_decision_deployment_outside_azure(api_base: Any) -> None:
+    """Missing, plain-http and look-alike bases are refused before any request leaves the host."""
+    with pytest.raises(ValueError):
+        await compat_module.codex_tools_compat.async_pre_call_check(_deployment("typesafe/D", api_base), None)
+
+
+@pytest.mark.parametrize("api_key", [None, ""])
+async def test_guard_rejects_a_decision_deployment_without_a_key(api_key: Any) -> None:
+    """Without a key the provider would substitute TYPESAFE_API_KEY, so the call is refused."""
+    with pytest.raises(ValueError):
+        await compat_module.codex_tools_compat.async_pre_call_check(_deployment("typesafe/D", AZURE_BASE, api_key), None)
+
+
+async def test_guard_ignores_non_decision_deployments() -> None:
+    """Chat deployments are not decision calls and are never blocked by the guard."""
+    deployment = _deployment("azure/gpt-6.1-sol", None, None)
+    assert await compat_module.codex_tools_compat.async_pre_call_check(deployment, None) is None

@@ -71,7 +71,7 @@ The file uses these variable names; keep its values private:
 - `AZURE_FOUNDRY_API_BASE` — the bare resource URL, such as `https://<resource>.openai.azure.com`.
 - `AZURE_FOUNDRY_API_KEY`
 - `LITELLM_MASTER_KEY` — an `sk-`-prefixed gateway key.
-- `AZURE_FOUNDRY_DECISIONS_BASE` — only for Profile D decision models: the same resource URL plus `/providers/microsoft`.
+- `AZURE_FOUNDRY_DECISIONS_BASE` — only for Profile D decision models: the same resource URL plus `/providers/microsoft`. The callback refuses to call a decision model if this is empty or not an `https` Azure host.
 
 The gateway never needs `TYPESAFE_API_KEY`, `TYPESAFE_API_BASE` or `GEMINI_API_KEY`. Keep them out of this file (see Profile D for why).
 
@@ -238,7 +238,12 @@ Decision models such as `Microsoft-Decision-1` do not generate text; they return
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
 ```
 
-**Credentials stay on the Foundry resource.** The `typesafe/` provider falls back to `TYPESAFE_API_BASE`, then `https://api.typesafe.ai`, and to `TYPESAFE_API_KEY` whenever the config value is empty. The shipped unit closes that fallback: `UnsetEnvironment=TYPESAFE_API_KEY` drops the key and `Environment=TYPESAFE_API_BASE=http://127.0.0.1:9` points the base at a closed local port, so a missing `AZURE_FOUNDRY_DECISIONS_BASE` fails locally instead of sending a credential to a third-party host. If you run LiteLLM without the unit, export the same two settings yourself. `tests/unit/test_decisions_egress.py` fails when a `typesafe/` entry does not take both its base and key from `AZURE_FOUNDRY_*` variables, or when the unit or example env drift from this rule.
+**Credentials stay on the Foundry resource.** The `typesafe/` provider falls back to `TYPESAFE_API_BASE`, then `https://api.typesafe.ai`, and to `TYPESAFE_API_KEY` whenever a config value is empty. A fixed unit setting is not enough, because systemd lets an `EnvironmentFile` line override `Environment=`. The guard works on the resolved deployment, so it holds whatever the environment contains:
+
+- The callback's `async_pre_call_check` refuses every `typesafe/` deployment whose `api_base` is empty, not `https`, or not an Azure host (`*.openai.azure.com`, `*.services.ai.azure.com`), and every one without an `api_key`. The router calls it for every decision call, including the ones a classifier makes internally, so nothing leaves the host.
+- The shipped unit drops `TYPESAFE_API_KEY` (`UnsetEnvironment` wins over `EnvironmentFile`), sets `LITELLM_MODE=PRODUCTION` so LiteLLM does not load a stray `.env`, and defaults `TYPESAFE_API_BASE` to a closed local port.
+
+The resource name stays in your local `gateway.env`, never in the repository. If you run LiteLLM without the unit, unset `TYPESAFE_API_KEY` and set `LITELLM_MODE=PRODUCTION` yourself. `tests/unit/test_decisions_egress.py` guards the config, the unit and the callback.
 
 Clients call the gateway on `POST /v1/systemone` (System One body: `state` plus a `questions` object) or `POST /v1/decisions` (OpenAI decisions body: `input` plus a `questions` list). Decision models are not added to the Codex catalog, and the compatibility callback ignores these routes. Verify a deployment with:
 
