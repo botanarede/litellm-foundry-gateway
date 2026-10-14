@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Run the live Codex compatibility matrix (5 models x shell, namespaced MCP, file edit) against a gateway port.
+# Set MATRIX_MODELS="<model>:<effort> ..." to run only selected models (default: the five below).
 set -u
 
 if [ "$#" -gt 1 ]; then
@@ -119,7 +120,7 @@ SHELL_P="Run the shell command 'cat hello.txt' and then reply with only the exac
 MCP_P="Use the ${MCP_SERVER} ${MCP_TOOL} tool (MCP namespace mcp__${MCP_SERVER}, tool ${MCP_TOOL}) to evaluate the JavaScript expression 6*7+0.5 and reply with only the numeric result it returned."
 PATCH_P="Create a file named note.txt containing exactly the line 'patched-ok' using your file editing tool (apply_patch if available), then run 'cat note.txt' and reply with its contents."
 
-for spec in gpt-6.1-sol:low DeepSeek-V4-Pro:none DeepSeek-V4-Flash:none Kimi-K2.7-Code:none grok-4.7:none; do
+for spec in ${MATRIX_MODELS:-gpt-6.1-sol:low DeepSeek-V4-Pro:none DeepSeek-V4-Flash:none Kimi-K2.7-Code:none grok-4.7:none}; do
   model=${spec%%:*}
   effort=${spec##*:}
   run "$model" "$effort" shell "$SHELL_P" "PREFLIGHT-OK-4217" check_shell_command
