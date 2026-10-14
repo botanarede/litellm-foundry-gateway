@@ -9,6 +9,12 @@ After=network-online.target
 
 [Service]
 EnvironmentFile=%h/.config/litellm-foundry-gateway/gateway.env
+# Decision models use LiteLLM's typesafe/ provider, which falls back to TYPESAFE_API_BASE, then
+# https://api.typesafe.ai, and to TYPESAFE_API_KEY when a config value is empty. Point the base at
+# a closed local port and drop the key, so a missing AZURE_FOUNDRY_DECISIONS_BASE fails locally
+# instead of sending credentials to a third-party host.
+Environment=TYPESAFE_API_BASE=http://127.0.0.1:9
+UnsetEnvironment=TYPESAFE_API_KEY
 ExecStart=%h/.local/share/litellm-foundry-gateway/venv/bin/litellm \
   --config @REPO_DIR@/gateway/config.yaml --host 127.0.0.1 --port 4000
 Restart=on-failure
