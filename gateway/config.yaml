@@ -20,17 +20,22 @@ model_list:
     litellm_params:
       <<: *partner
       model: azure/DeepSeek-V4-Flash
+      # Retry short-window Azure 429 and peak-load rejections.
+      num_retries: 2
     model_info: *compat
   - model_name: Kimi-K2.7-Code
     litellm_params:
       <<: *partner
       model: azure/Kimi-K2.7-Code
+      # Retry short-window Azure 429 and peak-load rejections.
+      num_retries: 2
     model_info: *compat
   - model_name: grok-4.7
     litellm_params:
       <<: *partner
       model: azure/grok-4.7
-      num_retries: 3
+      # Retry short-window Azure 429 and peak-load rejections.
+      num_retries: 2
     model_info: *compat
 
   # Profile D: decision models (System One wire format) on the Foundry Microsoft provider route.

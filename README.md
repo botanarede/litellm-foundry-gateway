@@ -359,6 +359,7 @@ To roll back a LiteLLM upgrade, check out the previous `requirements.in` and loc
 - **Logs:** neither request bodies nor secrets are logged by this gateway.
 - **Compatibility evidence:** Microsoft documentation is inconsistent about which partner deployments support `/openai/v1/responses`. The live matrix, not a catalog claim, is the source of truth.
 - **User-unit sandboxing:** on hosts that restrict unprivileged user namespaces (for example Ubuntu 24.04+ AppArmor defaults), systemd user units ignore `ProtectSystem` and `ProtectHome`. The unit intentionally does not rely on those directives.
+- **Retries and concurrency:** `num_retries: 2` on Kimi-K2.7-Code, DeepSeek-V4-Flash, and grok-4.7 retries short-window `429` and Azure peak-load rejections. LiteLLM 1.105.0 `max_parallel_requests` rejects with `429` instead of queueing, so it is intentionally not used; parallel subagent bursts and grok-4.7 desktop use still need an Azure quota increase.
 
 ## Security notes
 
