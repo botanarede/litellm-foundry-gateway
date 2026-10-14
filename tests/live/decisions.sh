@@ -13,10 +13,11 @@ if [ -z "$KEY" ]; then
 fi
 
 # Each case: label | route | JSON body. Bodies use the documented System One and OpenAI decision shapes.
-python3 - "$PORT" "$MODEL" "$KEY" <<'EOF'
-import json, sys, time, urllib.request, urllib.error
+# The key travels in the environment, not argv, so other local users cannot read it from the process list.
+GATEWAY_KEY="$KEY" python3 - "$PORT" "$MODEL" <<'EOF'
+import json, os, sys, time, urllib.request, urllib.error
 
-port, model, key = sys.argv[1], sys.argv[2], sys.argv[3]
+port, model, key = sys.argv[1], sys.argv[2], os.environ["GATEWAY_KEY"]
 
 CASES = [
     ("ticket routing (choice)", "/v1/systemone", "engineering", {
