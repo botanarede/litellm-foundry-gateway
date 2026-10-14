@@ -39,7 +39,7 @@ model_list:
     model_info: *compat
 
   # Profile D: decision models (System One wire format) on the Foundry Microsoft provider route.
-  # Served on /v1/decisions and /v1/systemone; not used by Codex and ignored by the callback.
+  # Served on /v1/decisions and /v1/systemone; not used by Codex. The callback guard applies.
   - model_name: Decision-1
     litellm_params:
       model: typesafe/Decision-1
