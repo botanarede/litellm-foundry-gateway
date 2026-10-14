@@ -120,12 +120,7 @@ class CodexToolsCompat(CustomLogger):
         self._maps: dict[str, ToolMapping] = {}
 
     async def async_pre_call_check(self, deployment: dict, parent_otel_span: Any) -> None:
-        """Refuse decision calls whose base or key would leave the Azure Foundry resource.
-
-        The typesafe/ provider falls back to TYPESAFE_API_BASE, then a third-party host, when the
-        configured base is empty. The Jev classifier calls the router directly, so only this
-        router-level hook sees every decision call.
-        """
+        """Refuse typesafe/ calls whose base is not an https Azure host (blocks TYPESAFE_* fallback)."""
         params = deployment.get("litellm_params") or {}
         if not str(params.get("model", "")).startswith("typesafe/"):
             return None
