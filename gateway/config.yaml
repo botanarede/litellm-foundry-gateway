@@ -33,13 +33,6 @@ model_list:
       num_retries: 3
     model_info: *compat
 
-  - model_name: gemini/gemini-2.5-flash
-    litellm_params:
-      model: gemini/gemini-2.5-flash
-      api_key: os.environ/GEMINI_API_KEY
-      # Optional non-Foundry entry; remove it if GEMINI_API_KEY is not set.
-      drop_params: true
-
 litellm_settings:
   callbacks: ["codex_tools_compat.codex_tools_compat"]
   request_timeout: 600

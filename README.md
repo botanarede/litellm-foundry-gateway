@@ -9,8 +9,7 @@ The service is one authenticated LiteLLM 1.104.2 process on `127.0.0.1:4000`. Co
 ```text
 Codex CLI / desktop app ── Responses API ──> LiteLLM :4000 (loopback, master key)
                                                 ├─ azure/<OpenAI deployment>
-                                                ├─ azure/<partner deployment> + compatibility callback
-                                                └─ gemini/gemini-2.5-flash (optional non-Foundry example)
+                                                └─ azure/<partner deployment> + compatibility callback
 ```
 
 It addresses the failures reproduced against partner models:
@@ -72,7 +71,6 @@ The file uses these variable names; keep its values private:
 - `AZURE_FOUNDRY_API_BASE` — the bare resource URL, such as `https://<resource>.openai.azure.com`.
 - `AZURE_FOUNDRY_API_KEY`
 - `LITELLM_MASTER_KEY` — an `sk-`-prefixed gateway key.
-- `GEMINI_API_KEY` — optional; only for the `gemini/gemini-2.5-flash` entry.
 - `TYPESAFE_API_KEY` — optional; reserved for a future LiteLLM decisions provider and unused by the current configuration.
 
 Render the user unit template with this checkout's absolute path, install it and start it:
