@@ -8,6 +8,13 @@ if [ "$#" -gt 1 ]; then
 fi
 
 PORT=${1:-4000}
+# The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript.
+MCP_SERVER="${MATRIX_MCP_SERVER:-}"
+MCP_TOOL="${MATRIX_MCP_TOOL:-js}"
+if [ -z "$MCP_SERVER" ]; then
+  printf 'Error: set MATRIX_MCP_SERVER to a Codex MCP server with a JavaScript evaluation tool.\n' >&2
+  exit 2
+fi
 LOG_ROOT="${MATRIX_LOG_ROOT:-$HOME/.local/state/litellm-foundry-gateway/matrix}"
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 LOG_DIR="${LOG_ROOT}/${PORT}-${TIMESTAMP}"
@@ -71,7 +78,7 @@ check_shell_command() {
 }
 
 check_mcp_tool() {
-  grep -q '^mcp: example_repl/js ' "$1"
+  grep -q "^mcp: ${MCP_SERVER}/${MCP_TOOL} " "$1"
 }
 
 check_patch_file() {
@@ -109,7 +116,7 @@ run() { # model effort tag prompt expectation [extra_check]
 }
 
 SHELL_P="Run the shell command 'cat hello.txt' and then reply with only the exact file contents. Do not guess."
-MCP_P="Use the example_repl js tool (MCP namespace mcp__example_repl, tool js) to evaluate the JavaScript expression 6*7+0.5 and reply with only the numeric result it returned."
+MCP_P="Use the ${MCP_SERVER} ${MCP_TOOL} tool (MCP namespace mcp__${MCP_SERVER}, tool ${MCP_TOOL}) to evaluate the JavaScript expression 6*7+0.5 and reply with only the numeric result it returned."
 PATCH_P="Create a file named note.txt containing exactly the line 'patched-ok' using your file editing tool (apply_patch if available), then run 'cat note.txt' and reply with its contents."
 
 for spec in gpt-6.1-sol:low DeepSeek-V4-Pro:none DeepSeek-V4-Flash:none Kimi-K2.7-Code:none grok-4.7:none; do

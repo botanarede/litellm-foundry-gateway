@@ -305,16 +305,16 @@ V=~/.local/share/litellm-foundry-gateway/venv
 $V/bin/pytest tests/unit -q
 ```
 
-Run the 5-model, 3-case live Codex matrix against any gateway port:
+Run the 5-model, 3-case live Codex matrix against any gateway port. The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`):
 
 ```bash
-bash tests/live/matrix.sh <port>
+MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh <port>
 ```
 
 Without `MATRIX_DEFAULT_PROVIDER=1`, the script creates a temporary LiteLLM provider override and obtains only the gateway key from the protected environment file. To validate the installed Codex configuration instead, use:
 
 ```bash
-MATRIX_DEFAULT_PROVIDER=1 bash tests/live/matrix.sh 4000
+MATRIX_DEFAULT_PROVIDER=1 MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh 4000
 ```
 
 Each run writes protected logs below `~/.local/state/litellm-foundry-gateway/matrix/` and stores the latest path for that port there. The matrix verifies the shell, namespaced MCP, and file-edit outcomes for each model.
@@ -336,7 +336,7 @@ For a desktop smoke test, run the desktop app's bundled Codex binary with `codex
    "$V/bin/litellm" --config "$PWD/gateway/config.yaml" --host 127.0.0.1 --port 4010
    ```
 
-5. In another terminal, run `bash tests/live/matrix.sh 4010`; stop the temporary process only after the matrix result is available.
+5. In another terminal, run `MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh 4010`; stop the temporary process only after the matrix result is available.
 6. If every validation passes, restart the installed service:
 
    ```bash
