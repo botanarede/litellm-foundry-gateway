@@ -1,9 +1,4 @@
-"""Checks for the optional `auto` complexity router (Profile E).
-
-`auto` is a LiteLLM complexity router whose classifier is the Decision-1 deployment. It is used only
-when a client asks for model `auto`; every other model entry must stay exactly as it was. The shape
-is validated with LiteLLM's own pydantic class so field names are checked by the library.
-"""
+"""Checks for the optional `auto` complexity router (README, Profile E)."""
 
 from pathlib import Path
 from typing import Any
@@ -65,6 +60,7 @@ def test_classifier_failure_routes_to_the_cheapest_model() -> None:
     assert router_config["classifier_fallback"] == "default_model"
     assert router_config["default_model"] == "DeepSeek-V4-Flash"
     assert router_config["session_affinity"] is True
+    assert router_config["session_affinity_ttl_seconds"] == 86400
 
 
 def test_auto_enables_codex_tool_compatibility() -> None:

@@ -66,6 +66,7 @@ model_list:
         default_model: DeepSeek-V4-Flash
         classifier_fallback: default_model
         session_affinity: true
+        session_affinity_ttl_seconds: 86400
     # The callback keys on the requested model name, so the flag must sit on `auto` itself.
     model_info:
       codex_tools_compat: true

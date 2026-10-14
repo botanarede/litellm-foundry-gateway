@@ -1,10 +1,4 @@
-"""Checks that keep decision-model credentials on the Azure Foundry resource.
-
-LiteLLM's `typesafe/` decisions provider falls back to TYPESAFE_API_BASE, then
-https://api.typesafe.ai, and to TYPESAFE_API_KEY when a config value is empty. Two layers close
-that: a router-level guard in the callback (the resolved api_base must be an https Azure host)
-and the systemd unit. The repository never holds the resource name.
-"""
+"""Checks that keep decision calls and their credentials on Azure Foundry hosts (README, Security notes)."""
 
 import re
 from pathlib import Path
