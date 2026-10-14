@@ -4,7 +4,7 @@ A local LiteLLM gateway that lets Codex CLI and the Codex/ChatGPT desktop app us
 
 ## Overview and architecture
 
-The service is one authenticated LiteLLM 1.104.2 process on `127.0.0.1:4000`. Codex clients use one Responses API provider; LiteLLM sends each Foundry deployment through its native Azure Responses path. The only custom component is the `codex_tools_compat` callback configured in `gateway/config.yaml`.
+The service is one authenticated LiteLLM 1.105.0 process on `127.0.0.1:4000`. Codex clients use one Responses API provider; LiteLLM sends each Foundry deployment through its native Azure Responses path. The only custom component is the `codex_tools_compat` callback configured in `gateway/config.yaml`.
 
 ```text
 Codex CLI / desktop app ── Responses API ──> LiteLLM :4000 (loopback, master key)
@@ -23,7 +23,7 @@ The configured Foundry deployments are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSe
 
 ## Verified status
 
-Verified on 2026-10-09 with LiteLLM 1.104.2, Codex CLI 0.160 and the Codex/ChatGPT desktop app (bundled Codex app-server 0.162):
+Verified with LiteLLM 1.105.0, Codex CLI 0.160 and the Codex/ChatGPT desktop app (bundled Codex app-server 0.162):
 
 | Model | Profile | Codex CLI live matrix (shell, namespaced MCP, file edit) | Desktop app |
 |---|---|---|---|
@@ -354,7 +354,7 @@ To roll back a LiteLLM upgrade, check out the previous `requirements.in` and loc
 - **Context window versus TPM:** a single request cannot exceed the deployment's tokens-per-minute limit. When a catalog `context_window` is larger than that limit (for example grok-4.7 with 80K TPM and a 500K window), set `auto_compact_token_limit` in the Codex catalog entry below the TPM limit so Codex compacts the conversation before Azure returns `429`.
 - **Partner file edits:** DeepSeek, Kimi, and grok never receive `apply_patch` because their Codex catalog entries set `apply_patch_tool_type` to `null`. They write files through the shell instead. The matrix patch case checks the resulting file, not which tool performed the edit.
 - **Kimi-K2.7-Code:** it can occasionally return an empty final answer or skip a tool call. This is observed model behavior; retry the case before treating it as a gateway failure.
-- **Authentication without a database:** a missing key is denied with 401. A wrong key can be denied with 400 and `No connected db`; it is still denied. `prisma==0.15.0` remains pinned in `requirements.in` because LiteLLM 1.104.2's auth error handler imports it even when no database is configured.
+- **Authentication without a database:** a missing key is denied with 401. A wrong key can be denied with 400 and `No connected db`; it is still denied. `prisma==0.15.0` remains pinned in `requirements.in` because LiteLLM's auth error handler (1.104.2 and 1.105.0) imports it even when no database is configured.
 - **Clients must authenticate:** the gateway binds to `127.0.0.1` and requires `LITELLM_MASTER_KEY`; every client (Codex or any other tool) must send it as a Bearer token.
 - **Logs:** neither request bodies nor secrets are logged by this gateway.
 - **Compatibility evidence:** Microsoft documentation is inconsistent about which partner deployments support `/openai/v1/responses`. The live matrix, not a catalog claim, is the source of truth.
