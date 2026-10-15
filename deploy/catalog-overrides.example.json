@@ -1,0 +1,51 @@
+{
+  "_comment": "Input for deploy/build-catalog.py. Each model copies the entry named by base from the installed Codex's bundled catalog, then applies these fields. Override keys must already exist in that entry. Slugs must match model_name in gateway/config.yaml.",
+  "base": "gpt-6.1-sol",
+  "partner_defaults": {
+    "default_reasoning_level": null,
+    "supported_reasoning_levels": [],
+    "support_verbosity": false,
+    "apply_patch_tool_type": null,
+    "supports_search_tool": false,
+    "use_responses_lite": false,
+    "tool_mode": "direct",
+    "input_modalities": ["text"]
+  },
+  "models": {
+    "gpt-6.1-sol": {
+      "display_name": "GPT-6.1 Sol (Azure)",
+      "description": "Azure Foundry GPT-6.1 Sol",
+      "default_reasoning_level": "medium"
+    },
+    "DeepSeek-V4-Pro": {
+      "partner": true,
+      "display_name": "DeepSeek V4 Pro (Azure)",
+      "description": "DeepSeek V4 Pro (Azure)"
+    },
+    "DeepSeek-V4-Flash": {
+      "partner": true,
+      "display_name": "DeepSeek V4 Flash (Azure)",
+      "description": "DeepSeek V4 Flash (Azure)",
+      "context_window": 1000000,
+      "max_context_window": 1000000
+    },
+    "Kimi-K2.7-Code": {
+      "partner": true,
+      "display_name": "Kimi K2.7 Code (Azure)",
+      "description": "Kimi K2.7 Code (Azure)"
+    },
+    "grok-4.7": {
+      "partner": true,
+      "display_name": "Grok 4.7 (Azure)",
+      "description": "Grok 4.7 (Azure)",
+      "default_verbosity": "medium",
+      "input_modalities": ["text", "image"],
+      "context_window": 500000
+    },
+    "auto": {
+      "partner": true,
+      "display_name": "Auto router (Azure)",
+      "description": "Complexity router: picks DeepSeek V4 Flash, DeepSeek V4 Pro or GPT-6.1 Sol per request (Azure)"
+    }
+  }
+}

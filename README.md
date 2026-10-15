@@ -311,6 +311,19 @@ stream_idle_timeout_ms = 600000
 
 Put an entry named `LITELLM_API_KEY` in `~/.codex/.env`, with the same private value as `LITELLM_MASTER_KEY`, and keep the file mode `0600`. Keep the existing Azure key available for the direct fallback.
 
+### Model catalog
+
+Codex lists only models in the file named by `model_catalog_json`. Generate it from the installed Codex instead of copying one: each entry embeds that Codex version's system prompt, so a copied catalog goes stale and is not redistributed here. `deploy/catalog-overrides.example.json` holds only the per-model fields (no prompt, no secrets); its slugs must match `model_name` in `gateway/config.yaml`.
+
+```bash
+python3 deploy/build-catalog.py deploy/catalog-overrides.example.json ~/.codex/azure-foundry-catalog.json
+# Desktop app: build with its bundled binary instead
+python3 deploy/build-catalog.py deploy/catalog-overrides.example.json <new-path> \
+  --codex ~/.codex/packages/app-server-daemon/releases/<version>/bin/codex
+```
+
+The script uses `codex debug models --bundled` as the schema and base entry, stops if the `base` model is missing from that Codex or an override key is not in its schema, refuses to write over an existing file, and checks the result by loading it back through `codex debug models`. To replace a catalog, move the old file aside first. It is verified with Codex CLI 0.160.1 and app-server 0.162.1; it was not tested as the live desktop catalog. Fields that exist only in newer Codex versions (for example `auto_compact_token_limit`) are rejected by older ones; add them to the overrides only when the reading Codex has them.
+
 The desktop app reads the configuration when it starts. After the live matrix passes, quit the app completely (make sure no `codex app-server` process from the old session remains) and reopen it.
 
 The direct Azure provider remains the manual CLI fallback:
@@ -337,7 +350,7 @@ V=~/.local/share/litellm-foundry-gateway/venv
 $V/bin/pytest tests/unit -q
 ```
 
-The unit suite needs no network or keys. It covers tool flattening and restore, the decision egress guard, the `auto` router config, the routing log, the F5 effort replacement (only on flagged deployments, valid efforts kept). It does not call Azure or Codex; those paths are covered only by the live checks below.
+The unit suite needs no network or keys. It covers tool flattening and restore, the decision egress guard, the `auto` router config, the routing log, the F5 effort replacement (only on flagged deployments, valid efforts kept), and `deploy/build-catalog.py` against a fake catalog. It does not call Azure or Codex; those paths are covered only by the live checks below.
 
 Run the 5-model, 3-case live Codex matrix against any gateway port (defaults: `gpt-6.1-sol` at `medium`, partners at `none`; `auto` runs only when named in `MATRIX_MODELS`). The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`):
 
