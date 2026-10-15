@@ -21,6 +21,7 @@ It addresses the failures reproduced against partner models:
 - **F2:** Foundry rejects function tools with a composed or non-object root schema; the callback drops those unsafe tools rather than corrupting their meaning.
 - **F3:** Foundry returns invalid content for Codex `namespace` tools; the callback flattens their child functions for the upstream request and restores the namespace in the response.
 - **F4:** partner models can return upstream `429` responses even with quota available; see "Retries and concurrency" under Limitations.
+- **F5:** `gpt-6.1-sol` rejects `reasoning.effort: none`, which Codex sends when its config sets `model_reasoning_effort = "none"` or the selected catalog entry (for example `auto`) has no reasoning levels. `model_info.reasoning_effort_none_as: medium` on that deployment replaces only that value, after `auto` has picked the deployment; valid efforts and other models are untouched.
 
 The configured Foundry deployments are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSeek-V4-Flash`, `Kimi-K2.7-Code`, and `grok-4.7`; the decision model is `Decision-1`, and the optional `auto` router is configured. Adding another Foundry deployment changes configuration, not gateway code.
 
@@ -37,6 +38,8 @@ Verified with LiteLLM 1.105.0, Codex CLI 0.160 and the Codex/ChatGPT desktop app
 | `grok-4.7` | B | 1/3 (Azure 429, see limitations) | Pending manual test |
 
 The latest full CLI matrix (2026-10-14) passed 13/15 on `127.0.0.1:4000`. The four non-grok models passed 3/3; `grok-4.7` passed shell and failed MCP (Azure 429 rate limit) and file edit (timeout after reconnects). The `Decision-1` smoke test (`tests/live/decisions.sh`) passed 4/4. The optional `auto` router passed 3/3 on a temporary instance, and a simple, a medium and a hard prompt were served by `DeepSeek-V4-Flash`, `DeepSeek-V4-Pro` and `gpt-6.1-sol`. The unit suite (`pytest tests/unit`) passes.
+
+On 2026-10-15 a 15-case CLI run covered `gpt-6.1-sol`, both DeepSeek models, `Kimi-K2.7-Code` and `auto` (3/3 each, `auto` at effort `none` with prompts that routed to `DeepSeek-V4-Flash`); `grok-4.7` was not in that run. The F5 fix was then checked on a temporary instance with single requests only: `gpt-6.1-sol` with effort `none` (served at `medium`) and `high` (kept), `auto` with a hard prompt at `none` through `/v1/responses` and through `codex exec` (COMPLEX tier, served by `gpt-6.1-sol`), `auto` with a simple prompt (`DeepSeek-V4-Flash`), and `grok-4.7` at `none`. The full matrix has not been rerun with the F5 fix.
 
 ## Install and run the user service
 
@@ -143,7 +146,7 @@ The following blocks are examples, not whole replacements. Copy only entries tha
 
 ### Profile A — OpenAI model on Foundry
 
-Profile A is native Azure Responses passthrough. Only `gpt-6.1-sol` is verified live from the examples below.
+Profile A is native Azure Responses passthrough. Only `gpt-6.1-sol` is verified live from the examples below. Set `model_info.reasoning_effort_none_as` (see F5) only on a deployment verified to reject effort `none`; it is verified for `gpt-6.1-sol` alone.
 
 ```yaml
   - model_name: gpt-6.1-sol
@@ -152,6 +155,8 @@ Profile A is native Azure Responses passthrough. Only `gpt-6.1-sol` is verified 
       api_base: os.environ/AZURE_FOUNDRY_API_BASE
       api_version: v1
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
+    model_info:
+      reasoning_effort_none_as: medium
   - model_name: gpt-6-astra
     litellm_params:
       <<: *profile_a_foundry
@@ -269,6 +274,7 @@ The classifier is `Decision-1` (`classifier_type: jev`, `deployment_name: Decisi
 - **What Decision-1 receives:** the current user ask, the system or `instructions` text in full (for Codex, tens of KB on every turn), and up to 3 prior user turns capped at 8,000 characters in total (LiteLLM defaults for `classifier_context_window_size` and `classifier_context_budget_chars`; no per-turn cap). Tool output and Codex harness blocks are excluded. Decision-1 accepts about 64,000 tokens of state (roughly 250,000 characters); probes up to 128,000 characters returned `200` in about 1.5 s, and larger input returns `422`, which takes the fallback path. LiteLLM 1.105.0 has no option to cap or exclude system text for Codex, so the defaults stay; the settings are deliberately not lowered because they are far below the limit.
 - **Cost of misrouting:** a request sent too low gets a weaker answer from `DeepSeek-V4-Flash` or `DeepSeek-V4-Pro`; one sent too high spends `gpt-6.1-sol`. Each classification adds one Decision-1 call (about 0.5–1.5 s). Pin an explicit model when the choice matters.
 - **Tool compatibility:** `auto` carries `codex_tools_compat: true` because the callback keys on the requested model name. Tools are therefore flattened and restored for every target, including `gpt-6.1-sol`.
+- **Reasoning effort:** the `auto` catalog entry has no reasoning levels, so Codex sends effort `none`. DeepSeek tiers drop it, and `gpt-6.1-sol` receives `medium` (F5).
 
 Test it on a temporary port, never on the live service:
 
@@ -331,7 +337,9 @@ V=~/.local/share/litellm-foundry-gateway/venv
 $V/bin/pytest tests/unit -q
 ```
 
-Run the 5-model, 3-case live Codex matrix against any gateway port. The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`):
+The unit suite needs no network or keys. It covers tool flattening and restore, the decision egress guard, the `auto` router config, the routing log, the F5 effort replacement (only on flagged deployments, valid efforts kept). It does not call Azure or Codex; those paths are covered only by the live checks below.
+
+Run the 5-model, 3-case live Codex matrix against any gateway port (defaults: `gpt-6.1-sol` at `medium`, partners at `none`; `auto` runs only when named in `MATRIX_MODELS`). The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`):
 
 ```bash
 MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh <port>

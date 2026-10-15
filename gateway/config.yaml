@@ -7,6 +7,9 @@ model_list:
       api_base: os.environ/AZURE_FOUNDRY_API_BASE
       api_version: v1
       api_key: os.environ/AZURE_FOUNDRY_API_KEY
+    model_info:
+      # Codex sends effort "none" when its config or catalog says so (also via auto); Sol rejects it.
+      reasoning_effort_none_as: medium
 
   # Profile B: Partner models remove unsupported reasoning effort and enable Codex tool compatibility.
   - model_name: DeepSeek-V4-Pro

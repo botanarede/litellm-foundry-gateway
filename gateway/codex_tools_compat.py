@@ -134,6 +134,15 @@ class CodexToolsCompat(CustomLogger):
             raise ValueError("decision deployment needs an https Azure Foundry api_base and an api_key")
         return None
 
+    async def async_pre_call_deployment_hook(self, kwargs: dict[str, Any], call_type: Any) -> dict[str, Any] | None:
+        """Replace reasoning effort "none" for a deployment that rejects it (runs after auto routing)."""
+        effort = (kwargs.get("model_info") or {}).get("reasoning_effort_none_as")
+        reasoning = kwargs.get("reasoning")
+        if not effort or not isinstance(reasoning, dict) or reasoning.get("effort") != "none":
+            return None
+        kwargs["reasoning"] = {**reasoning, "effort": effort}
+        return kwargs
+
     async def async_pre_call_hook(
         self, user_api_key_dict: Any, cache: Any, data: dict[str, Any], call_type: str
     ) -> dict[str, Any]:

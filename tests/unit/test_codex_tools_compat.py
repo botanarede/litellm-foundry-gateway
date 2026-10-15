@@ -511,3 +511,33 @@ async def test_routing_log_reports_tier_and_model_without_prompt(caplog: pytest.
     assert [record.getMessage() for record in caplog.records] == [
         "auto routed: tier=SIMPLE cause=jev_classifier model=DeepSeek-V4-Flash"
     ]
+
+
+@pytest.mark.parametrize(
+    ("model_info", "reasoning", "expected"),
+    [
+        ({"reasoning_effort_none_as": "medium"}, {"effort": "none", "summary": "auto"}, {"effort": "medium", "summary": "auto"}),
+        ({"reasoning_effort_none_as": "medium"}, {"effort": "high"}, {"effort": "high"}),
+        ({"reasoning_effort_none_as": "medium"}, None, None),
+        ({"codex_tools_compat": True}, {"effort": "none"}, {"effort": "none"}),
+        (None, {"effort": "none"}, {"effort": "none"}),
+    ],
+)
+async def test_effort_none_is_replaced_only_for_flagged_deployments(
+    model_info: dict[str, Any] | None, reasoning: dict[str, Any] | None, expected: dict[str, Any] | None
+) -> None:
+    """Only a deployment flagged in model_info gets "none" replaced; valid efforts and other models pass through."""
+    kwargs = {"model": "azure/x", "model_info": model_info, "reasoning": deepcopy(reasoning)}
+    result = await compat_module.codex_tools_compat.async_pre_call_deployment_hook(kwargs, None)
+    assert (result or kwargs).get("reasoning") == expected
+
+
+def test_only_sol_maps_effort_none_to_medium() -> None:
+    """The config flags Sol alone, with medium (never low), so partner tiers keep dropping effort."""
+    config = yaml.safe_load((REPOSITORY_ROOT / "gateway" / "config.yaml").read_text(encoding="utf-8"))
+    flagged = {
+        entry["model_name"]: entry["model_info"]["reasoning_effort_none_as"]
+        for entry in config["model_list"]
+        if (entry.get("model_info") or {}).get("reasoning_effort_none_as")
+    }
+    assert flagged == {"gpt-6.1-sol": "medium"}
