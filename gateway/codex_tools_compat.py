@@ -13,6 +13,11 @@ SEP = "__"
 MAX_NAME = 64
 _COMPOSITIONS = ("anyOf", "oneOf", "allOf", "not")
 ToolMapping = dict[str, tuple[Any, Any]]
+# Own handler: the proxy leaves module loggers at WARNING, which would hide the per-request routing line.
+ROUTE_LOG = logging.getLogger("auto_route")
+ROUTE_LOG.setLevel(logging.INFO)
+if not ROUTE_LOG.handlers:
+    ROUTE_LOG.addHandler(logging.StreamHandler())
 
 
 def is_compat(model_group: str | None) -> bool:
@@ -171,6 +176,13 @@ class CodexToolsCompat(CustomLogger):
                 yield chunk
         finally:
             self._maps.pop(request_data.get("litellm_call_id"), None)
+
+    async def async_log_success_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
+        """Log the tier and deployment that answered a complexity-routed request (no prompt content)."""
+        metadata = (kwargs.get("litellm_params") or {}).get("metadata") or {}
+        decision = metadata.get("routing_decision") or {}
+        if decision.get("router_type") == "complexity":
+            ROUTE_LOG.info("auto routed: tier=%s cause=%s model=%s", decision.get("tier"), decision.get("cause"), kwargs.get("model"))
 
     async def async_post_call_failure_hook(
         self,

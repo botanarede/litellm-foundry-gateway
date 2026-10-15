@@ -497,3 +497,17 @@ async def test_r2_7_leaves_other_call_types_untouched(
 
     assert returned == original
     assert compat_module.codex_tools_compat._maps == {}
+
+
+async def test_routing_log_reports_tier_and_model_without_prompt(caplog: pytest.LogCaptureFixture) -> None:
+    """Only complexity-routed answers are logged, with tier, cause and model but no request content."""
+    callback = compat_module.codex_tools_compat
+    decision = {"router_type": "complexity", "tier": "SIMPLE", "cause": "jev_classifier"}
+    routed = {"model": "DeepSeek-V4-Flash", "messages": "secret prompt", "litellm_params": {"metadata": {"routing_decision": decision}}}
+    classifier = {"model": "Decision-1", "litellm_params": {"metadata": {}}}
+    with caplog.at_level("INFO", logger="auto_route"):
+        await callback.async_log_success_event(classifier, None, None, None)
+        await callback.async_log_success_event(routed, None, None, None)
+    assert [record.getMessage() for record in caplog.records] == [
+        "auto routed: tier=SIMPLE cause=jev_classifier model=DeepSeek-V4-Flash"
+    ]
