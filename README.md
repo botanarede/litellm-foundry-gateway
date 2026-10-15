@@ -350,7 +350,7 @@ V=~/.local/share/litellm-foundry-gateway/venv
 $V/bin/pytest tests/unit -q
 ```
 
-The unit suite needs no network or keys. It covers tool flattening and restore, the decision egress guard, the `auto` router config, the routing log, the F5 effort replacement (only on flagged deployments, valid efforts kept), and `deploy/build-catalog.py` against a fake catalog. It does not call Azure or Codex; those paths are covered only by the live checks below.
+The unit suite needs no network or keys. It covers tool flattening and restore, the decision egress guard, the `auto` router config, the routing log, the F5 effort replacement (only on flagged deployments, valid efforts kept), and `deploy/build-catalog.py` against a fake catalog. It also covers the matrix sandbox preflight and isolation flags using a fake Codex binary (`tests/unit/test_matrix_preflight.py`). It does not call Azure or Codex; those paths are covered only by the live checks below.
 
 Run the 5-model, 3-case live Codex matrix against any gateway port (defaults: `gpt-6.1-sol` at `medium`, partners at `none`; `auto` runs only when named in `MATRIX_MODELS`). The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`):
 
@@ -365,6 +365,16 @@ MATRIX_DEFAULT_PROVIDER=1 MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh 4
 ```
 
 Each run writes protected logs below `~/.local/state/litellm-foundry-gateway/matrix/` and stores the latest path for that port there. The matrix verifies the shell, namespaced MCP, and file-edit outcomes for each model.
+
+**Matrix isolation and limits**
+
+- A working Codex sandbox is required. Before any model call the script runs a probe through `codex sandbox` with the same `sandbox_mode="workspace-write"` and environment overrides the cases use, and exits 2 if the sandbox fails or the probe sees the gateway key. There is no bypass option.
+- Every case runs with `--ephemeral`, `-s workspace-write` and `approval_policy=never`.
+- Shell commands run by the model are intended to get an empty environment with only `PATH=/usr/bin:/bin` (Codex may add its own variables), so the gateway key is not inherited by them. This was not verified live on a host with a working sandbox.
+- **Limit:** `workspace-write` restricts writes, not reads, so model commands can still read files the user can read (for example the gateway env file); use a dedicated test key and a throwaway instance.
+- **Limit:** MCP servers run outside the sandbox and are not restricted, and they may inherit the exported gateway key; the script only warns about other enabled MCP servers (or that it could not list them). Features such as `js_repl` may also run outside the sandbox; this was not verified.
+- **Limit:** whether `codex sandbox` applies the environment overrides the same way as `codex exec` was not verified; if it does not, the probe stops the run instead of passing, but a mismatch where the probe isolates and `exec` does not would go undetected.
+- On hosts that restrict unprivileged user namespaces (for example Ubuntu 24.04+ with AppArmor), the probe fails until the system grants the Codex binary permission to create user namespaces; this repository does not change system policy, and the isolation was not verified live on such a host.
 
 For a desktop smoke test, run the desktop app's bundled Codex binary with `codex exec` and the same temporary provider override used by the non-default matrix mode. Smoke at least one Profile A and two Profile B models (for example `gpt-6.1-sol`, `DeepSeek-V4-Pro`, and `Kimi-K2.7-Code`) before restarting the desktop app.
 

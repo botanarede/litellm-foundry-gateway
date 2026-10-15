@@ -16,6 +16,29 @@ if [ -z "$MCP_SERVER" ]; then
   printf 'Error: set MATRIX_MCP_SERVER to a Codex MCP server with a JavaScript evaluation tool.\n' >&2
   exit 2
 fi
+
+# Model-run shell commands get an empty environment plus a fixed PATH (Codex may still add its own variables), so the
+# gateway key is not inherited by them. The preflight below uses the same sandbox policy and environment arguments.
+ISOLATION_ARGS=(-c shell_environment_policy.inherit=none -c 'shell_environment_policy.set={PATH="/usr/bin:/bin"}')
+
+# Every case runs model-generated commands, so a working Codex sandbox that hides the key is mandatory. Stop before
+# any paid call when it is unavailable (for example, Linux hosts that restrict unprivileged user namespaces) or when
+# the key stays visible to a sandboxed command. There is no bypass.
+if ! LITELLM_PF_KEY=preflight-probe timeout 30 codex sandbox -c 'sandbox_mode="workspace-write"' "${ISOLATION_ARGS[@]}" \
+  -- sh -c 'test -z "${LITELLM_PF_KEY-}"' > /dev/null 2>&1; then
+  printf 'Error: the Codex sandbox is unavailable or leaks the key to sandboxed commands (check: codex sandbox -- true). No model call was made.\n' >&2
+  exit 2
+fi
+
+# This does not stop file reads (workspace-write only limits writes) and does not restrict MCP servers, which run
+# outside the sandbox: warn about every enabled one other than the server under test.
+if OTHER_MCP=$(set -o pipefail; codex mcp list --json 2>/dev/null | MCP_SERVER="$MCP_SERVER" python3 -c \
+  'import json,os,sys; print(" ".join(s["name"] for s in json.load(sys.stdin) if s.get("enabled") and s["name"] != os.environ["MCP_SERVER"]))' 2>/dev/null); then
+  [ -z "$OTHER_MCP" ] || printf 'Warning: other MCP servers are enabled and reachable by the model: %s\n' "$OTHER_MCP" >&2
+else
+  printf 'Warning: could not list MCP servers; other servers may be reachable by the model.\n' >&2
+fi
+
 LOG_ROOT="${MATRIX_LOG_ROOT:-$HOME/.local/state/litellm-foundry-gateway/matrix}"
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 LOG_DIR="${LOG_ROOT}/${PORT}-${TIMESTAMP}"
@@ -97,8 +120,8 @@ run() { # model effort tag prompt expectation [extra_check]
 
   log_file="${LOG_DIR}/${model}-${tag}.log"
   started=$(date +%s)
-  timeout 300 codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -C "$WORK_DIR" \
-    "${PROVIDER_ARGS[@]}" -m "$model" -c model_reasoning_effort="$effort" "$prompt" > "$log_file" 2>&1
+  timeout 300 codex exec --skip-git-repo-check --ephemeral -s workspace-write -c approval_policy=never -C "$WORK_DIR" \
+    "${ISOLATION_ARGS[@]}" "${PROVIDER_ARGS[@]}" -m "$model" -c model_reasoning_effort="$effort" "$prompt" > "$log_file" 2>&1
   rc=$?
   last=$(tail -1 "$log_file" | cut -c1-80)
 
