@@ -363,20 +363,26 @@ The unit suite needs no network or keys. Per-file coverage:
 - `test_decisions_egress.py` — decision egress guard across the gateway config, the `async_pre_call_check` callback, and systemd unit text assertions including the `ExecStartPre` line content.
 - `test_auto_router.py` — the optional `auto` complexity-router config: allowed tier targets, classifier wiring, fallback model, and session affinity.
 - `test_build_catalog.py` — `deploy/build-catalog.py` against a fake bundled Codex catalog and the real `catalog-overrides.example.json`.
-- `test_matrix_preflight.py` — `tests/live/matrix.sh` sandbox preflight and isolation flags using a fake Codex binary; no model calls.
+- `test_matrix_preflight.py` — `tests/live/matrix.sh` sandbox preflight, isolation flags and the managed gateway (disposable key, unit egress hardening, busy-port and port-4000 refusal, teardown) using a fake Codex and a fake LiteLLM on loopback; no model calls.
 
 Gaps — not covered by the offline suite:
 - No unit test calls Azure or Codex; those paths are exercised only by the live scripts below.
 - Live matrix isolation has not been proven at runtime on the maintainer's host (see "Matrix isolation and limits").
 - The unit's `ExecStartPre` lines are tested as text assertions (string match on the service file), not by executing the commands through systemd.
 
-Run the 5-model, 3-case live Codex matrix against any gateway port (defaults: `gpt-6.1-sol` at `medium`, partners at `none`; `auto` runs only when named in `MATRIX_MODELS`). The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`):
+Run the 5-model, 3-case live Codex matrix (defaults: `gpt-6.1-sol` at `medium`, partners at `none`; `auto` runs only when named in `MATRIX_MODELS`). The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`). Without a port argument the script starts its own short-lived gateway on `127.0.0.1:4010` (`MATRIX_MANAGED_PORT` to change it), authenticated with a disposable key generated for that run, and stops it when the script ends. It refuses a port that is already in use and never uses port 4000:
+
+```bash
+MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh
+```
+
+To target a gateway that is already running instead, pass its port; the script then uses that gateway's master key from the protected environment file:
 
 ```bash
 MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh <port>
 ```
 
-Without `MATRIX_DEFAULT_PROVIDER=1`, the script creates a temporary LiteLLM provider override and obtains only the gateway key from the protected environment file. To validate the installed Codex configuration instead, use:
+Without `MATRIX_DEFAULT_PROVIDER=1`, the script creates a temporary LiteLLM provider override. To validate the installed Codex configuration instead, use:
 
 ```bash
 MATRIX_DEFAULT_PROVIDER=1 MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh 4000
@@ -388,6 +394,8 @@ Each run writes protected logs below `~/.local/state/litellm-foundry-gateway/mat
 
 - A working Codex sandbox is required. Before any model call the script runs a probe through `codex sandbox` with the same `sandbox_mode="workspace-write"` and environment overrides the cases use, and exits 2 if the sandbox fails or the probe sees the gateway key. There is no bypass option.
 - Every case runs with `--ephemeral`, `-s workspace-write` and `approval_policy=never`.
+- The managed gateway receives the Azure credentials from the protected environment file but a disposable master key, so Codex and its model commands never get the real master key as an environment variable. A hard time limit (`MATRIX_SERVER_TTL`, default 5400 s) stops the gateway even if the script is killed with SIGKILL, which skips its cleanup. Its log is written to the run's protected log directory.
+- **Limit:** the Azure credentials are real inside the managed gateway and in the environment file, which model commands can still read; use a dedicated Azure key or deployment for the matrix if that matters.
 - Shell commands run by the model are intended to get an empty environment with only `PATH=/usr/bin:/bin` (Codex may add its own variables), so the gateway key is not inherited by them. This was not verified live on a host with a working sandbox.
 - **Limit:** `workspace-write` restricts writes, not reads, so model commands can still read files the user can read (for example the gateway env file); use a dedicated test key and a throwaway instance.
 - **Limit:** MCP servers run outside the sandbox and are not restricted, and they may inherit the exported gateway key; the script only warns about other enabled MCP servers (or that it could not list them). Features such as `js_repl` may also run outside the sandbox; this was not verified.
@@ -401,19 +409,13 @@ For a desktop smoke test, run the desktop app's bundled Codex binary with `codex
 1. Review LiteLLM's GitHub security advisories first. If a newer stable version is appropriate, update the exact pin in `requirements.in` (and any justified companion pin).
 2. Regenerate both hashed locks with the commands in the install section, then recreate or update the dedicated venv using the `--require-hashes` installation command.
 3. Run the unit suite.
-4. From the repository root, start the candidate manually on a temporary port such as 4010 with the protected environment file. Do not echo its values:
+4. From the repository root, run the matrix against a candidate gateway that the script starts and stops itself (port 4010, disposable key, same egress hardening as the unit):
 
    ```bash
-   V=~/.local/share/litellm-foundry-gateway/venv
-   set -a
-   . ~/.config/litellm-foundry-gateway/gateway.env
-   set +a
-   LITELLM_MODE=PRODUCTION TYPESAFE_API_BASE=http://127.0.0.1:9 \
-     "$V/bin/litellm" --config "$PWD/gateway/config.yaml" --host 127.0.0.1 --port 4010
+   MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh
    ```
 
-5. In another terminal, run `MATRIX_MCP_SERVER=<server> bash tests/live/matrix.sh 4010`; stop the temporary process only after the matrix result is available.
-6. If every validation passes, restart the installed service:
+5. If every validation passes, restart the installed service:
 
    ```bash
    systemctl --user restart litellm-foundry-gateway.service

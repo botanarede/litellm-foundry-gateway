@@ -8,7 +8,16 @@ if [ "$#" -gt 1 ]; then
   exit 2
 fi
 
-PORT=${1:-4000}
+# Without a PORT (and without MATRIX_DEFAULT_PROVIDER=1) the script starts its own short-lived gateway on
+# MATRIX_MANAGED_PORT (default 4010) with a disposable master key and stops it on exit. With a PORT it targets that
+# running gateway as before. The installed service on 4000 is never started or stopped by this script.
+if [ "$#" -eq 0 ] && [ "${MATRIX_DEFAULT_PROVIDER:-0}" != "1" ]; then
+  MANAGED=1
+  PORT="${MATRIX_MANAGED_PORT:-4010}"
+else
+  MANAGED=0
+  PORT=${1:-4000}
+fi
 # The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript.
 MCP_SERVER="${MATRIX_MCP_SERVER:-}"
 MCP_TOOL="${MATRIX_MCP_TOOL:-js}"
@@ -39,6 +48,26 @@ else
   printf 'Warning: could not list MCP servers; other servers may be reachable by the model.\n' >&2
 fi
 
+if [ "$MANAGED" = "1" ]; then
+  GATEWAY_ENV="${GATEWAY_ENV:-$HOME/.config/litellm-foundry-gateway/gateway.env}"
+  LITELLM_BIN="${MATRIX_LITELLM_BIN:-$HOME/.local/share/litellm-foundry-gateway/venv/bin/litellm}"
+  GATEWAY_CONFIG="$(cd "$(dirname "$0")/../.." && pwd)/gateway/config.yaml"
+  case "$PORT" in
+    ''|*[!0-9]*|4000)
+      printf 'Error: MATRIX_MANAGED_PORT must be a number other than 4000 (the installed service port).\n' >&2
+      exit 2 ;;
+  esac
+  if [ ! -r "$GATEWAY_ENV" ] || [ ! -x "$LITELLM_BIN" ] || [ ! -r "$GATEWAY_CONFIG" ]; then
+    printf 'Error: the managed gateway needs a readable gateway env file, an executable litellm (MATRIX_LITELLM_BIN) and gateway/config.yaml.\n' >&2
+    exit 2
+  fi
+  # Never reuse or kill a process this script did not start.
+  if (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
+    printf 'Error: port %s is already in use; stop that process or set MATRIX_MANAGED_PORT.\n' "$PORT" >&2
+    exit 2
+  fi
+fi
+
 LOG_ROOT="${MATRIX_LOG_ROOT:-$HOME/.local/state/litellm-foundry-gateway/matrix}"
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 LOG_DIR="${LOG_ROOT}/${PORT}-${TIMESTAMP}"
@@ -64,8 +93,18 @@ if ! WORK_DIR=$(mktemp -d); then
   printf 'Error: cannot create temporary matrix work directory.\n' >&2
   exit 2
 fi
-# The trap prevents file-edit cases from leaving state behind after a failure or interruption.
-trap 'rm -rf -- "$WORK_DIR"' EXIT
+# The trap prevents file-edit cases and the managed gateway from outliving a failure or interruption.
+GW_PID=""
+cleanup() {
+  if [ -n "$GW_PID" ]; then
+    kill "$GW_PID" 2>/dev/null
+    wait "$GW_PID" 2>/dev/null
+  fi
+  rm -rf -- "$WORK_DIR"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if ! printf '%s\n' 'PREFLIGHT-OK-4217' > "$WORK_DIR/hello.txt"; then
   printf 'Error: cannot prepare matrix work file.\n' >&2
@@ -77,14 +116,45 @@ if [ "${MATRIX_DEFAULT_PROVIDER:-0}" = "1" ]; then
   # This mode verifies the installed Codex configuration, which loads its own key from ~/.codex/.env.
   printf 'Mode: default Codex provider (no provider override)\n'
 else
-  # Read only the master-key value needed by the temporary provider; never source or print the env file.
-  GATEWAY_ENV="${GATEWAY_ENV:-$HOME/.config/litellm-foundry-gateway/gateway.env}"
-  LITELLM_PF_KEY="$(grep -m 1 '^LITELLM_MASTER_KEY=' "$GATEWAY_ENV" | cut -d= -f2-)"
-  if [ -z "$LITELLM_PF_KEY" ]; then
-    printf 'Error: LITELLM_MASTER_KEY is unavailable in the gateway environment file.\n' >&2
-    exit 2
+  if [ "$MANAGED" = "1" ]; then
+    # Disposable key: generated per run, kept only in this script's environment and the gateway's. The real master key
+    # is overridden before the gateway starts, so Codex never receives it. The unit's egress hardening is repeated.
+    LITELLM_PF_KEY="sk-matrix-$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+    export LITELLM_PF_KEY
+    (
+      set -a
+      . "$GATEWAY_ENV"
+      set +a
+      export LITELLM_MASTER_KEY="$LITELLM_PF_KEY" LITELLM_MODE=PRODUCTION TYPESAFE_API_BASE=http://127.0.0.1:9
+      unset TYPESAFE_API_KEY LITELLM_PF_KEY
+      # The timeout is a backstop for a SIGKILL of this script, which skips the trap.
+      exec timeout -k 5 "${MATRIX_SERVER_TTL:-5400}" "$LITELLM_BIN" --config "$GATEWAY_CONFIG" --host 127.0.0.1 --port "$PORT"
+    ) > "$LOG_DIR/gateway.log" 2>&1 &
+    GW_PID=$!
+    READY=0
+    for _ in $(seq 1 120); do
+      kill -0 "$GW_PID" 2>/dev/null || break
+      # Authenticating with the disposable key proves the process on the port is the one this script started.
+      CODE=$(printf 'header = "Authorization: Bearer %s"\n' "$LITELLM_PF_KEY" \
+        | curl -sS -m 3 -K - -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/v1/models" 2>/dev/null)
+      if [ "$CODE" = "200" ]; then READY=1; break; fi
+      sleep 0.5
+    done
+    if [ "$READY" != "1" ]; then
+      printf 'Error: the managed gateway did not become ready (see %s). No model call was made.\n' "$LOG_DIR/gateway.log" >&2
+      exit 2
+    fi
+    printf 'Managed gateway ready on 127.0.0.1:%s (disposable key, stops on exit)\n' "$PORT"
+  else
+    # Read only the master-key value needed by the temporary provider; never source or print the env file.
+    GATEWAY_ENV="${GATEWAY_ENV:-$HOME/.config/litellm-foundry-gateway/gateway.env}"
+    LITELLM_PF_KEY="$(grep -m 1 '^LITELLM_MASTER_KEY=' "$GATEWAY_ENV" | cut -d= -f2-)"
+    if [ -z "$LITELLM_PF_KEY" ]; then
+      printf 'Error: LITELLM_MASTER_KEY is unavailable in the gateway environment file.\n' >&2
+      exit 2
+    fi
+    export LITELLM_PF_KEY
   fi
-  export LITELLM_PF_KEY
 
   # Temporary provider override with the same retry limits as the recommended Codex config.
   PROVIDER="model_providers.litellm_pf={name=\"pf\",base_url=\"http://127.0.0.1:${PORT}/v1\",env_key=\"LITELLM_PF_KEY\",wire_api=\"responses\",supports_websockets=false,request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=600000}"
