@@ -14,6 +14,7 @@ Environment=TYPESAFE_API_BASE=http://127.0.0.1:9
 Environment=LITELLM_MODE=PRODUCTION
 UnsetEnvironment=TYPESAFE_API_KEY
 ExecStartPre=/bin/sh -c 'test -n "$${LITELLM_MASTER_KEY}" || { echo "LITELLM_MASTER_KEY is empty; refusing to start without auth" >&2; exit 1; }'
+ExecStartPre=/bin/sh -c 'test "$${TYPESAFE_API_BASE}" = "http://127.0.0.1:9" || { echo "TYPESAFE_API_BASE must stay at the closed local port; refusing to start" >&2; exit 1; }'
 ExecStart=%h/.local/share/litellm-foundry-gateway/venv/bin/litellm \
   --config @REPO_DIR@/gateway/config.yaml --host 127.0.0.1 --port 4000
 Restart=on-failure

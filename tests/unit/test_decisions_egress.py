@@ -66,6 +66,13 @@ def test_unit_closes_the_typesafe_fallbacks() -> None:
     assert "UnsetEnvironment=TYPESAFE_API_KEY" in lines
     assert "Environment=TYPESAFE_API_BASE=http://127.0.0.1:9" in lines
     assert "Environment=LITELLM_MODE=PRODUCTION" in lines
+    typesafe_pre = [
+        line for line in lines
+        if line.startswith("ExecStartPre=") and "TYPESAFE_API_BASE" in line
+    ]
+    assert typesafe_pre, "No ExecStartPre line checks TYPESAFE_API_BASE"
+    assert "http://127.0.0.1:9" in typesafe_pre[0]
+    assert "exit 1" in typesafe_pre[0]
 
 
 def test_env_example_does_not_ship_third_party_decision_credentials() -> None:
@@ -121,5 +128,6 @@ async def test_guard_ignores_non_decision_deployments() -> None:
 def test_unit_refuses_to_start_without_master_key() -> None:
     """Without LITELLM_MASTER_KEY LiteLLM would serve without auth, so the unit must fail first."""
     pre = [line for line in _unit_lines() if line.startswith("ExecStartPre=")]
-    assert len(pre) == 1
-    assert "LITELLM_MASTER_KEY" in pre[0] and "exit 1" in pre[0]
+    master_key_pre = [line for line in pre if "LITELLM_MASTER_KEY" in line]
+    assert len(master_key_pre) == 1
+    assert "exit 1" in master_key_pre[0]

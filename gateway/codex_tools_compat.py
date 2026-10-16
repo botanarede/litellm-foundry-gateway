@@ -1,4 +1,24 @@
-"""LiteLLM compatibility callback for Codex namespace tools."""
+"""LiteLLM CustomLogger callback providing Codex tool compatibility for the gateway.
+
+Two responsibilities:
+
+- **Namespace-tool compatibility** (enabled per-model by ``codex_tools_compat: true`` in
+  ``model_info``): flattens Codex namespace tools for partner model requests, rewrites
+  replayed namespace calls in the input, and restores the original namespace and name in
+  responses (both streaming and non-streaming).
+
+- **Decision-call guard** (``async_pre_call_check``): acts only on deployments whose model
+  name starts with ``typesafe/``; rejects those whose resolved ``api_base`` is not an https
+  Azure Foundry host or that lack an ``api_key``. Deployments with any other model prefix
+  pass through without this check.
+
+The module also replaces ``reasoning.effort: none`` for individual deployments configured to
+reject that value, and logs one log line per complexity-routed request (no prompt
+content is included).
+
+The singleton ``codex_tools_compat`` at module level is the callback object registered in
+``gateway/config.yaml``.
+"""
 
 import logging
 from collections.abc import AsyncGenerator
@@ -121,6 +141,7 @@ class CodexToolsCompat(CustomLogger):
     """Apply compatibility transformations only to configured Responses requests."""
 
     def __init__(self) -> None:
+        """Initialize the callback with an empty per-call tool mapping cache."""
         super().__init__()
         self._maps: dict[str, ToolMapping] = {}
 

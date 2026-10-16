@@ -18,6 +18,7 @@ from pathlib import Path
 
 
 def fail(message: str) -> None:
+    """Print a prefixed error message to stderr and exit with a non-zero status."""
     sys.exit(f"build-catalog: {message}")
 
 
@@ -51,6 +52,7 @@ def build(bundled: list[dict], spec: dict) -> dict:
 
 
 def main() -> None:
+    """Parse CLI arguments, build the catalog JSON, write it, and verify it with Codex."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("overrides", type=Path)
     parser.add_argument("output", type=Path)
