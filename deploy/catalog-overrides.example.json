@@ -20,7 +20,9 @@
     "DeepSeek-V4-Pro": {
       "partner": true,
       "display_name": "DeepSeek V4 Pro (Azure)",
-      "description": "DeepSeek V4 Pro (Azure)"
+      "description": "DeepSeek V4 Pro (Azure)",
+      "context_window": 1000000,
+      "max_context_window": 1000000
     },
     "DeepSeek-V4-Flash": {
       "partner": true,
@@ -32,7 +34,9 @@
     "Kimi-K2.7-Code": {
       "partner": true,
       "display_name": "Kimi K2.7 Code (Azure)",
-      "description": "Kimi K2.7 Code (Azure)"
+      "description": "Kimi K2.7 Code (Azure)",
+      "context_window": 256000,
+      "max_context_window": 256000
     },
     "grok-4.7": {
       "partner": true,

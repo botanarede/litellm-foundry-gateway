@@ -11,3 +11,8 @@ __pycache__/
 AGENTS.md
 .kiro/
 reference/
+.agents/
+
+# Generated Codex model catalog (contains model_messages / Codex system prompt; must not be published)
+azure-foundry-catalog.json
+*.catalog.json
