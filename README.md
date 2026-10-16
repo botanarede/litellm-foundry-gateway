@@ -29,20 +29,20 @@ The configured Foundry deployments are `gpt-6.1-sol`, `DeepSeek-V4-Pro`, `DeepSe
 
 Verified with LiteLLM 1.105.0, Codex CLI 0.160 and the Codex/ChatGPT desktop app:
 
-Date-tagged entries below were confirmed by the maintainer in direct runs (CLI or desktop); no automated test covers these results. All CLI matrix results in this table come from runs prior to the sandbox-preflight commit (2026-10-15); those runs used an older version of `tests/live/matrix.sh` that ran Codex without a sandbox.
+Date-tagged entries below were confirmed by the maintainer in direct runs (CLI or desktop); no automated test covers these results. The five-model CLI matrix results come from the 2026-10-16 run, which used the current `tests/live/matrix.sh` (sandbox preflight, disposable key, managed gateway on `127.0.0.1:4010`). The `auto` row comes from an earlier run (2026-10-15) that used an older version of the script without a sandbox.
 
 | Model | Profile | Codex CLI live matrix (shell, namespaced MCP, file edit) | Desktop app |
 |---|---|---|---|
-| `gpt-6.1-sol` | A | 3/3 PASS (CLI, 2026-10-15) | Functional (desktop, 2026-10-15) |
-| `DeepSeek-V4-Pro` | B | 3/3 PASS (CLI, 2026-10-15) | Not verified in the desktop app |
-| `DeepSeek-V4-Flash` | B | 3/3 PASS (CLI, 2026-10-15) | Pending manual test |
-| `Kimi-K2.7-Code` | B | 3/3 PASS (CLI, 2026-10-15) | Not verified in the desktop app |
-| `grok-4.7` | B | 1/3 (Azure 429, see limitations) | Pending manual test |
+| `gpt-6.1-sol` | A | 3/3 PASS (CLI, 2026-10-16) | Functional (desktop, 2026-10-15) |
+| `DeepSeek-V4-Pro` | B | 3/3 PASS (CLI, 2026-10-16) | Not verified in the desktop app |
+| `DeepSeek-V4-Flash` | B | 3/3 PASS (CLI, 2026-10-16) | Pending manual test |
+| `Kimi-K2.7-Code` | B | 3/3 PASS (CLI, 2026-10-16) | Not verified in the desktop app |
+| `grok-4.7` | B | 3/3 PASS (CLI, 2026-10-16) | Pending manual test |
 | `auto` | — | 3/3 PASS (CLI, 2026-10-15) | Functional (desktop, 2026-10-15) |
 
-The latest full CLI matrix passed 13/15 on `127.0.0.1:4000` on 2026-10-14. See the note above and the Testing section for sandbox and isolation context. The four non-grok models passed 3/3; `grok-4.7` passed shell and failed MCP (Azure 429 rate limit) and file edit (timeout after reconnects). The `Decision-1` smoke test (`tests/live/decisions.sh`) passed 4/4 on 2026-10-14. The optional `auto` router passed 3/3 on a temporary instance on 2026-10-14, with a simple, a medium and a hard prompt served by `DeepSeek-V4-Flash`, `DeepSeek-V4-Pro` and `gpt-6.1-sol`. The unit suite (`pytest tests/unit`) passes.
+The latest full CLI matrix passed 15/15 on 2026-10-16 (five models, three cases each, `workspace-write` sandbox). The file-edit case checks the resulting file, not the tool used: only `gpt-6.1-sol` used the native `apply_patch`; the other four models created the file through a shell command or `python3`, so the native patch path is verified for the Sol deployment only. A transient Azure 500 on `DeepSeek-V4-Pro` during its MCP case was retried by Codex and the case passed. The previous full matrix, before the sandbox preflight, passed 13/15 on `127.0.0.1:4000` on 2026-10-14 (`grok-4.7` failed MCP on an Azure 429 rate limit and file edit on a timeout after reconnects). See the Testing section for sandbox and isolation context. The `Decision-1` smoke test (`tests/live/decisions.sh`) passed 4/4 on 2026-10-14. The optional `auto` router passed 3/3 on a temporary instance on 2026-10-14, with a simple, a medium and a hard prompt served by `DeepSeek-V4-Flash`, `DeepSeek-V4-Pro` and `gpt-6.1-sol`. The unit suite (`pytest tests/unit`) passes.
 
-On 2026-10-15 a 15-case CLI run covered `gpt-6.1-sol`, both DeepSeek models, `Kimi-K2.7-Code` and `auto` (3/3 each, `auto` at effort `none` with prompts that routed to `DeepSeek-V4-Flash`); `grok-4.7` was not in that run. The F5 fix was then verified on a temporary instance with single requests only: `gpt-6.1-sol` with effort `none` (served at `medium`) and `high` (kept), `auto` with a hard prompt at `none` through `/v1/responses` and through `codex exec` (COMPLEX tier, served by `gpt-6.1-sol`), `auto` with a simple prompt (`DeepSeek-V4-Flash`), and `grok-4.7` at `none`. The full matrix has not been rerun with the F5 fix.
+On 2026-10-15 a 15-case CLI run covered `gpt-6.1-sol`, both DeepSeek models, `Kimi-K2.7-Code` and `auto` (3/3 each, `auto` at effort `none` with prompts that routed to `DeepSeek-V4-Flash`); `grok-4.7` was not in that run. The F5 fix was then verified on a temporary instance with single requests only: `gpt-6.1-sol` with effort `none` (served at `medium`) and `high` (kept), `auto` with a hard prompt at `none` through `/v1/responses` and through `codex exec` (COMPLEX tier, served by `gpt-6.1-sol`), `auto` with a simple prompt (`DeepSeek-V4-Flash`), and `grok-4.7` at `none`. The 2026-10-16 matrix ran with the F5 fix in place.
 
 ## Install and run the user service
 
@@ -367,7 +367,7 @@ The unit suite needs no network or keys. Per-file coverage:
 
 Gaps — not covered by the offline suite:
 - No unit test calls Azure or Codex; those paths are exercised only by the live scripts below.
-- Live matrix isolation has not been proven at runtime on the maintainer's host (see "Matrix isolation and limits").
+- The 2026-10-16 live run passed the sandbox probe and ran every case under `workspace-write`, but the isolation of model commands was not otherwise verified (see "Matrix isolation and limits").
 - The unit's `ExecStartPre` lines are tested as text assertions (string match on the service file), not by executing the commands through systemd.
 
 Run the 5-model, 3-case live Codex matrix (defaults: `gpt-6.1-sol` at `medium`, partners at `none`; `auto` runs only when named in `MATRIX_MODELS`). The namespaced-MCP case needs an MCP server configured in Codex whose tool evaluates JavaScript; name it with `MATRIX_MCP_SERVER` (and `MATRIX_MCP_TOOL` if the tool is not called `js`). Without a port argument the script starts its own short-lived gateway on `127.0.0.1:4010` (`MATRIX_MANAGED_PORT` to change it), authenticated with a disposable key generated for that run, and stops it when the script ends. It refuses a port that is already in use and never uses port 4000:
@@ -400,7 +400,7 @@ Each run writes protected logs below `~/.local/state/litellm-foundry-gateway/mat
 - **Limit:** `workspace-write` restricts writes, not reads, so model commands can still read files the user can read (for example the gateway env file); use a dedicated test key and a throwaway instance.
 - **Limit:** MCP servers run outside the sandbox and are not restricted, and they may inherit the exported gateway key; the script only warns about other enabled MCP servers (or that it could not list them). Features such as `js_repl` may also run outside the sandbox; this was not verified.
 - **Limit:** whether `codex sandbox` applies the environment overrides the same way as `codex exec` was not verified; if it does not, the probe stops the run instead of passing, but a mismatch where the probe isolates and `exec` does not would go undetected.
-- On hosts that restrict unprivileged user namespaces (for example Ubuntu 24.04+ with AppArmor), the probe fails until the host administrator allows the helper that creates the namespace (the `bwrap` binary Codex invokes, not the Codex binary itself) to do so. That is a system-wide security change: a profile for `bwrap` applies to every process on the host that runs it, so weigh it before granting. This repository neither ships nor applies such a profile, and the isolation was not verified live on such a host.
+- On hosts that restrict unprivileged user namespaces (for example Ubuntu 24.04+ with AppArmor), the probe fails until the host administrator allows the helper that creates the namespace (the `bwrap` binary Codex invokes, not the Codex binary itself) to do so. That is a system-wide security change: a profile for `bwrap` applies to every process on the host that runs it, so weigh it before granting. This repository neither ships nor applies such a profile. The 2026-10-16 run passed the probe on a host where the administrator had allowed `bwrap`; what that run did not verify is stated in the limits above.
 
 For a desktop smoke test, run the desktop app's bundled Codex binary with `codex exec` and the same temporary provider override used by the non-default matrix mode. Smoke at least one Profile A and two Profile B models (for example `gpt-6.1-sol`, `DeepSeek-V4-Pro`, and `Kimi-K2.7-Code`) before restarting the desktop app.
 
