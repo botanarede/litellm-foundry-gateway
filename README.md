@@ -44,6 +44,17 @@ The latest full CLI matrix passed 15/15 on 2026-10-16 (five models, three cases 
 
 On 2026-10-15 a 15-case CLI run covered `gpt-6.1-sol`, both DeepSeek models, `Kimi-K2.7-Code` and `auto` (3/3 each, `auto` at effort `none` with prompts that routed to `DeepSeek-V4-Flash`); `grok-4.7` was not in that run. The F5 fix was then verified on a temporary instance with single requests only: `gpt-6.1-sol` with effort `none` (served at `medium`) and `high` (kept), `auto` with a hard prompt at `none` through `/v1/responses` and through `codex exec` (COMPLEX tier, served by `gpt-6.1-sol`), `auto` with a simple prompt (`DeepSeek-V4-Flash`), and `grok-4.7` at `none`. The 2026-10-16 matrix ran with the F5 fix in place.
 
+## Prerequisites
+
+Before installing, make sure the following prerequisites are available:
+
+- **Host:** Linux x86_64 with a systemd user session where `systemctl --user` works, tested on Ubuntu 24.04; the hashed locks target x86_64 manylinux, so other platforms must regenerate them.
+- **uv:** Install it first from <https://docs.astral.sh/uv/getting-started/installation/>; it creates the venv and installs the hashed locks.
+- **Python 3.12:** `uv` uses an installed 3.12 or downloads one.
+- **Tools:** `curl` and `openssl` for health checks and key generation.
+- **Azure AI Foundry:** A resource with the deployments named in `gateway/config.yaml` (the name after `azure/` in each `litellm_params.model` must match a deployment name), its endpoint and API key, and enough tokens-per-minute quota for each deployment (see Limitations).
+- **Codex:** Codex CLI 0.160.1 or the Codex/ChatGPT desktop app, only for the Codex setup and live tests; the gateway itself does not need it.
+
 ## Install and run the user service
 
 Run these commands from the repository root. The virtual environment is deliberately outside the checkout.
