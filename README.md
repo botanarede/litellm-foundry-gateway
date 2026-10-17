@@ -95,6 +95,21 @@ The file uses these variable names; keep its values private:
 
 The gateway never needs `TYPESAFE_API_KEY`, `TYPESAFE_API_BASE` or `GEMINI_API_KEY`. Keep them out of this file (see Security notes).
 
+Open the file in a text editor and replace every placeholder; the Azure endpoint and API key are on the Keys and Endpoint page of the Foundry resource in the Azure portal.
+
+```bash
+# The key is generated inside the shell, so it never appears in the process list or on screen.
+F=~/.config/litellm-foundry-gateway/gateway.env
+(umask 077; { grep -v '^LITELLM_MASTER_KEY=' "$F"; printf 'LITELLM_MASTER_KEY=sk-%s\n' "$(openssl rand -hex 16)"; } > "$F.new") && mv "$F.new" "$F"
+```
+
+The same value goes into `~/.codex/.env` as `LITELLM_API_KEY` (see Codex setup).
+
+```bash
+grep -cE '<[^>]+>|=$' ~/.config/litellm-foundry-gateway/gateway.env
+# Expected: 0 (1 if you leave AZURE_FOUNDRY_DECISIONS_BASE empty because you do not use Profile D)
+```
+
 Render the user unit template with this checkout's absolute path, install it and start it:
 
 ```bash
@@ -104,6 +119,13 @@ sed "s|@REPO_DIR@|$PWD|" deploy/litellm-foundry-gateway.service \
 systemd-analyze --user verify ~/.config/systemd/user/litellm-foundry-gateway.service
 systemctl --user daemon-reload
 systemctl --user enable --now litellm-foundry-gateway.service
+```
+
+If the service does not start, check its status and the journal. For example, the unit refuses to start when `LITELLM_MASTER_KEY` is empty, and the journal shows why:
+
+```bash
+systemctl --user status litellm-foundry-gateway.service --no-pager
+journalctl --user -u litellm-foundry-gateway.service -n 50 --no-pager
 ```
 
 `WantedBy=default.target` starts the gateway with your user session, so it is back after every reboot as soon as you log in. To start it at boot without a login session, run `loginctl enable-linger "$USER"` once.
