@@ -17,4 +17,4 @@ reported to their respective maintainers.
 ## Non-affiliation
 
 This project is not affiliated with, endorsed by, or officially supported by
-Microsoft, Azure, OpenAI, Anthropic, LiteLLM (BerriAI), or Moonshot AI.
+Microsoft, Azure, OpenAI, Anthropic, DeepSeek, xAI, LiteLLM (BerriAI), or Moonshot AI.
