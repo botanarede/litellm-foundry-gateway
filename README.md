@@ -507,6 +507,8 @@ Optional state left by the live tests lives in `~/.local/state/litellm-foundry-g
 
 ## Security notes
 
+To report a vulnerability, follow [SECURITY.md](SECURITY.md).
+
 - **Secrets:** keep them only in the mode-0600 files `~/.config/litellm-foundry-gateway/gateway.env` and `~/.codex/.env`. Never commit them and never print their values.
 - **Clients must authenticate:** the gateway binds to `127.0.0.1` and requires `LITELLM_MASTER_KEY`; every client (Codex or any other tool) must send it as a Bearer token.
 - **Empty master key:** without a master key LiteLLM serves without authentication, so the unit's `ExecStartPre` refuses to start when `LITELLM_MASTER_KEY` is empty.

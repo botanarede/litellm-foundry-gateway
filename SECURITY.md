@@ -1,5 +1,10 @@
 # Security Policy
 
+## Supported Versions
+
+This project has no tagged releases. Only the latest commit on the `main`
+branch is supported; fixes land there.
+
 ## Reporting a Vulnerability
 
 Open a private security advisory through the repository platform or contact
