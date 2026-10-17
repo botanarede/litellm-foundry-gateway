@@ -11,7 +11,14 @@ __pycache__/
 AGENTS.md
 .kiro/
 reference/
-.agents/
+# Only the install skill under .agents/skills/ is published; audit tasks and other agent files stay local.
+.agents/*
+!.agents/skills/
+
+# Backups and key material
+*.env.bak*
+*.key
+*.pem
 
 # Generated Codex model catalog (contains model_messages / Codex system prompt; must not be published)
 azure-foundry-catalog.json
