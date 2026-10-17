@@ -466,6 +466,33 @@ systemctl --user disable --now litellm-foundry-gateway.service
 
 To roll back a LiteLLM upgrade, check out the previous `requirements.in` and locks, reinstall the venv with `--require-hashes`, and restart the service.
 
+## Uninstall
+
+Remove everything created by the install section; apply the Codex steps only if you configured Codex.
+
+```bash
+systemctl --user disable --now litellm-foundry-gateway.service
+rm ~/.config/systemd/user/litellm-foundry-gateway.service
+systemctl --user daemon-reload
+rm -r ~/.local/share/litellm-foundry-gateway/venv
+```
+
+The environment file holds the Azure key and the master key; delete it, then rotate the Azure key in the portal if the host is being handed over:
+
+```bash
+shred -u ~/.config/litellm-foundry-gateway/gateway.env
+rmdir ~/.config/litellm-foundry-gateway
+```
+
+For Codex, edit by hand; do not replace the files:
+
+- In `~/.codex/config.toml`, set `model_provider` back to `"azure-foundry"` (or your previous provider), remove the `[model_providers.litellm]` block and the `model_catalog_json` line.
+- Remove the `LITELLM_API_KEY` entry from `~/.codex/.env`; keep the file mode `0600`.
+- Delete the generated catalog file (the path the removed `model_catalog_json` line named) and, if you created it, `~/.codex/azure-direct.config.toml`.
+- Restart the desktop app.
+
+Optional state left by the live tests lives in `~/.local/state/litellm-foundry-gateway/` and can be removed with `rm -r ~/.local/state/litellm-foundry-gateway/`.
+
 ## Limitations and operational facts
 
 - **Composed root schemas:** partner models cannot use tools whose root schema is composed (for example the desktop app's `automation_update`); those tools are intentionally removed from partner-model requests. Under `auto`, those tools are also removed when the router picks `gpt-6.1-sol`.
